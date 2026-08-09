@@ -79,12 +79,15 @@ owners here. Expected future categories are:
 
 1. Start from a clean `master` checkout and install the pinned-range
    requirements.
-2. Run `python -m pytest -q`; the expected current result is 18 passing tests.
+2. Run `python -m pytest -q`; the expected current result is 22 passing tests.
 3. Check `/health` and confirm `{"status":"ok","mode":"fixture"}`.
 4. Open `/demo` and load the inbound fixture.
 5. Walk through product facts, quantity two, checkout link creation, order
    lookup, delivery event replay, opt-out, takeover, and explicit resume.
-6. Reset with:
+6. Open the approved-template list, enqueue an order-status template, replay
+   the enqueue request, then opt out and submit it to show the final policy
+   recheck blocks the queued command.
+7. Reset with:
 
 ```powershell
 Invoke-RestMethod -Method Post `
