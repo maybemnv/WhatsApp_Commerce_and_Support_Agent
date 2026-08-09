@@ -185,6 +185,56 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"conversation_id": conversation_id, "human_takeover": False}
 
+    @app.get("/inbox/{conversation_id}/templates")
+    def templates(
+        conversation_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        return {"items": commerce_service.list_templates()}
+
+    @app.post("/inbox/{conversation_id}/outbound/templates")
+    def enqueue_template(
+        conversation_id: str,
+        body: dict,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        template_id = body.get("template_id")
+        locale = body.get("locale")
+        variables = body.get("variables")
+        workflow = body.get("workflow")
+        idempotency_key = body.get("idempotency_key")
+        if not all(isinstance(value, str) and value.strip() for value in (template_id, locale, workflow, idempotency_key)):
+            raise HTTPException(status_code=422, detail="template_id, locale, workflow, and idempotency_key are required")
+        if not isinstance(variables, dict):
+            raise HTTPException(status_code=422, detail="variables must be an object")
+        try:
+            command = commerce_service.enqueue_template(
+                conversation_id,
+                template_id=template_id,
+                locale=locale,
+                variables=variables,
+                workflow=workflow,
+                idempotency_key=idempotency_key,
+            )
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _outbound_payload(command)
+
+    @app.post("/inbox/{conversation_id}/outbound/{command_id}/submit")
+    def submit_outbound(
+        conversation_id: str,
+        command_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        try:
+            command = commerce_service.submit_outbound(conversation_id, command_id)
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _outbound_payload(command)
+
     @app.post("/inbox/{conversation_id}/product-question")
     def product_question(
         conversation_id: str,
@@ -340,6 +390,12 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         for key in list(commerce_store.workflows):
             if key in conversation_ids:
                 del commerce_store.workflows[key]
+        for key, command in list(commerce_store.outbound_commands.items()):
+            if command.conversation_id in conversation_ids:
+                del commerce_store.outbound_commands[key]
+        for key in list(commerce_store.outbound_idempotency):
+            if key[0] in conversation_ids:
+                del commerce_store.outbound_idempotency[key]
         return {"reset": True, "workspace_id": scoped_workspace}
 
     return app
@@ -371,6 +427,23 @@ def _latest_message(store: InMemoryConversationStore, conversation_id: str) -> s
     if not messages:
         return None
     return max(messages, key=lambda message: message.occurred_at).body_text
+
+
+def _outbound_payload(command: object) -> dict[str, object]:
+    return {
+        "command_id": command.command_id,
+        "conversation_id": command.conversation_id,
+        "template_id": command.template_id,
+        "locale": command.locale,
+        "variables": command.variables,
+        "workflow": command.workflow,
+        "idempotency_key": command.idempotency_key,
+        "status": command.status,
+        "policy_code": command.policy_code,
+        "policy_reason": command.policy_reason,
+        "provider_result": command.provider_result,
+        "attempts": command.attempts,
+    }
 
 
 def _iso(value):

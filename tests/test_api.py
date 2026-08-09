@@ -205,6 +205,50 @@ def test_takeover_exposes_a_handoff_brief_for_the_operator():
     }
 
 
+def test_template_enqueue_and_final_policy_recheck_are_visible_in_api():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post(
+        "/webhooks/meta_cloud",
+        headers=headers,
+        json=PAYLOAD,
+    )
+    conversation_id = accepted.json()["conversation_id"]
+
+    templates = client.get(
+        f"/inbox/{conversation_id}/templates",
+        headers=headers,
+    )
+    queued = client.post(
+        f"/inbox/{conversation_id}/outbound/templates",
+        headers=headers,
+        json={
+            "template_id": "order_status_update",
+            "locale": "en-US",
+            "variables": {
+                "order_id": "ORDER-BLUE-001",
+                "status": "in_transit",
+                "tracking_id": "TRK-BLUE-001",
+            },
+            "workflow": "order_status",
+            "idempotency_key": "api-template-1",
+        },
+    )
+    client.post(f"/inbox/{conversation_id}/policy/opt-out", headers=headers)
+    blocked = client.post(
+        f"/inbox/{conversation_id}/outbound/{queued.json()['command_id']}/submit",
+        headers=headers,
+    )
+
+    assert templates.status_code == 200
+    assert templates.json()["items"][0]["id"] == "order_status_update"
+    assert queued.status_code == 200
+    assert queued.json()["status"] == "queued"
+    assert blocked.status_code == 200
+    assert blocked.json()["status"] == "blocked"
+    assert blocked.json()["policy_code"] == "opted_out"
+
+
 def test_order_status_returns_safe_match_or_no_match():
     client = TestClient(create_app())
     headers = {"X-Workspace-ID": WORKSPACE_ID}

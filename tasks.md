@@ -19,18 +19,21 @@
 - [x] Added a deterministic outbound policy decision boundary for active service windows, opt-out, and human takeover, with explicit API controls and regression tests.
 - [x] Added a seeded order-status lookup with safe no-match behavior and idempotent delivery-event updates for the client trace.
 - [x] Added a deterministic human takeover action that creates an operator handoff brief with reason, task ID, and explicit resume behavior.
+- [x] Added five fixture approved-template contracts with exact locale, variable, workflow, local-approval, and provider-approval checks at enqueue time and a final-send policy recheck.
+- [x] Added idempotent outbound command storage plus regression coverage proving opt-out and human takeover block queued sends before provider submission; the fixture result is explicitly `fixture_only`.
+- [x] Added `deployment.md` with Supabase target infrastructure, fixture setup, no-secrets environment guidance, demo preflight, and handoff limitations.
 
 ### Not yet complete
 
 - [ ] PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding.
-- [ ] Enqueue/provider submission enforcement, approved-template validation, configurable opt-out/re-consent, retry/dead-letter handling, and live adapter capability checks remain outstanding; the current slice covers the in-memory policy gate and demo controls.
+- [ ] Enqueue/provider submission enforcement, configurable opt-out/re-consent, retry/dead-letter handling, and live adapter capability checks remain outstanding; the current slice covers fixture policy gates and approved-template validation.
 - [ ] CRM synchronization, appointment booking, attribution analytics, and full client handoff documentation remain outstanding; seeded order/delivery and human takeover paths are implemented.
 
 ### Next work queue
 
 1. Add persistent workspace/customer/conversation state and provider signature validation.
-2. Implement approved-template validation and policy checks at enqueue/provider-submission boundaries, including opt-out and takeover races.
-3. Add retry/dead-letter, appointment/CRM, and append-only audit workflows with regression tests.
+2. Add bounded retry/dead-letter records and policy rechecks around queued commands.
+3. Add persistent Supabase workspace/conversation state, appointment/CRM, and append-only audit workflows with regression tests.
 4. Add the remaining client demo script, runbook, integration matrix, and acceptance report.
 
 The full checklist below remains the source of the complete Phase 0-5 scope; this status records only verified work in the current checkout.
@@ -97,12 +100,12 @@ The full checklist below remains the source of the complete Phase 0-5 scope; thi
 ## Phase 3 — Service window, templates, opt-out, retry, and dead letter
 
 - [ ] Enforce the 24-hour window at enqueue time and again immediately before provider submission; no closed-window free-form send is permitted.
-- [ ] Implement the five PRD template contracts: `order_status_update`, `appointment_reminder`, `payment_link_follow_up`, `human_handoff_ack`, and `service_window_reopen`.
-- [ ] Validate template locale, variables, local/provider approval, workflow authorization, window state, and opt-out state before submission.
-- [ ] Implement configurable opt-out phrases, immutable opt-out events, blocked outbound commands, and operator-controlled re-consent review.
+- [x] Implement the five fixture template contracts: `order_status_update`, `appointment_reminder`, `payment_link_follow_up`, `human_handoff_ack`, and `service_window_reopen`.
+- [x] Validate fixture template locale, variables, local/provider approval, workflow authorization, window state, and opt-out/takeover state at enqueue and final submission.
+- [x] Implement fixture opt-out state and blocked outbound commands; configurable phrases, immutable event persistence, and operator-controlled re-consent remain outstanding.
 - [ ] Add bounded transient retry at 5 seconds, 30 seconds, and 5 minutes; do not retry permanent, invalid, opted-out, closed-window, or rejected-template commands unchanged.
 - [ ] Add dead-letter records containing payload reference, attempt count, error class, next action, policy recheck, and replay result.
-- [ ] Ensure takeover and opt-out block queued automation before provider submission, even when the work was already enqueued.
+- [x] Ensure takeover and opt-out block queued automation before provider submission, even when the work was already enqueued.
 - [ ] Add race tests for takeover-vs-send, opt-out-vs-retry, duplicate webhook-vs-workflow, and closed-window-vs-template.
 
 **Demo gate:** An expired appointment reminder uses an approved template, a simulated timeout retries, and a later opt-out prevents the queued retry from sending.

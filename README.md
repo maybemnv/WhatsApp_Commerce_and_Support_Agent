@@ -31,5 +31,7 @@ The current slice covers normalized inbound identity, replay deduplication, work
 ## Current boundary
 
 - Implemented: FastAPI fixture API, in-memory conversation state, seeded blue-product catalog, responsive demo workbench, and typed commerce workflow behavior.
-- Next: PostgreSQL repository, signature verification, service-window enforcement at enqueue/provider submission, approved-template registry, configurable opt-out/re-consent, retry/dead-letter state, appointment/CRM workflows, audit persistence, and live adapter capability checks.
+- Implemented: fixture approved-template registry, exact-variable/workflow validation, idempotent outbound command enqueue, and final-send policy rechecks for opt-out and human takeover.
+- Next: PostgreSQL repository, signature verification, configurable opt-out/re-consent, retry/dead-letter state, appointment/CRM workflows, audit persistence, and live adapter capability checks.
+- Template controls: `GET /inbox/{conversationId}/templates`, `POST /inbox/{conversationId}/outbound/templates`, and `POST /inbox/{conversationId}/outbound/{commandId}/submit`.
 - Visual authority: the shared root `design.md` schema is adapted in `apps/web/index.html`; provider-specific capabilities remain explicitly unverified.

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Callable, Literal
 
 from .inbound import InMemoryConversationStore
 from .policy import OutboundPolicy, PolicyDecision
+from .templates import TemplateRegistry, TemplateValidationError
 
 
 class CommerceError(ValueError):
@@ -58,6 +59,22 @@ class DeliveryEventResult:
     duplicate: bool
 
 
+@dataclass(frozen=True, slots=True)
+class OutboundCommandResult:
+    command_id: str
+    conversation_id: str
+    template_id: str
+    locale: str
+    variables: dict[str, object]
+    workflow: str
+    idempotency_key: str
+    status: str
+    policy_code: str | None = None
+    policy_reason: str | None = None
+    provider_result: str | None = None
+    attempts: int = 0
+
+
 @dataclass(slots=True)
 class WorkflowRun:
     workflow_id: str
@@ -98,6 +115,8 @@ class CommerceDemoStore:
     workflows: dict[str, WorkflowRun] = field(default_factory=dict)
     orders: dict[str, Order] = field(default_factory=dict)
     delivery_events: dict[str, str] = field(default_factory=dict)
+    outbound_commands: dict[str, OutboundCommandResult] = field(default_factory=dict)
+    outbound_idempotency: dict[tuple[str, str], str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.products:
@@ -144,6 +163,79 @@ class CommerceService:
         self.catalog = catalog
         self.policy = policy or OutboundPolicy()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.templates = TemplateRegistry()
+
+    def list_templates(self) -> list[dict[str, object]]:
+        return self.templates.list()
+
+    def enqueue_template(
+        self,
+        conversation_id: str,
+        *,
+        template_id: str,
+        locale: str,
+        variables: dict[str, object],
+        workflow: str,
+        idempotency_key: str,
+    ) -> OutboundCommandResult:
+        self._require_conversation(conversation_id)
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise CommerceError("idempotency_key is required")
+        try:
+            self.templates.validate(template_id, locale, variables, workflow)
+        except TemplateValidationError as exc:
+            raise CommerceError(str(exc)) from exc
+
+        key = (conversation_id, idempotency_key)
+        existing_id = self.catalog.outbound_idempotency.get(key)
+        if existing_id is not None:
+            return self.catalog.outbound_commands[existing_id]
+        decision = self.outbound_policy(conversation_id)
+        command = OutboundCommandResult(
+            command_id=f"outbound-{sha256(f'{conversation_id}:{idempotency_key}'.encode()).hexdigest()[:16]}",
+            conversation_id=conversation_id,
+            template_id=template_id,
+            locale=locale,
+            variables=dict(variables),
+            workflow=workflow,
+            idempotency_key=idempotency_key,
+            status="queued" if decision.allowed else "blocked",
+            policy_code=None if decision.allowed else decision.code,
+            policy_reason=None if decision.allowed else decision.reason,
+        )
+        self.catalog.outbound_commands[command.command_id] = command
+        self.catalog.outbound_idempotency[key] = command.command_id
+        return command
+
+    def submit_outbound(
+        self, conversation_id: str, command_id: str
+    ) -> OutboundCommandResult:
+        self._require_conversation(conversation_id)
+        command = self.catalog.outbound_commands.get(command_id)
+        if command is None or command.conversation_id != conversation_id:
+            raise CommerceError("outbound command not found")
+        if command.status in {"sent", "blocked"}:
+            return command
+        decision = self.outbound_policy(conversation_id)
+        if not decision.allowed:
+            blocked = replace(
+                command,
+                status="blocked",
+                policy_code=decision.code,
+                policy_reason=decision.reason,
+            )
+            self.catalog.outbound_commands[command_id] = blocked
+            return blocked
+        sent = replace(
+            command,
+            status="sent",
+            policy_code="allowed",
+            policy_reason="outbound allowed at provider boundary",
+            provider_result="fixture_only",
+            attempts=command.attempts + 1,
+        )
+        self.catalog.outbound_commands[command_id] = sent
+        return sent
 
     def outbound_policy(self, conversation_id: str) -> PolicyDecision:
         self._require_conversation(conversation_id)
