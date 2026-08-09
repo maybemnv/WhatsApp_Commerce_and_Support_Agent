@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import FileResponse
 from pathlib import Path
 
 from .commerce import CommerceDemoStore, CommerceError, CommerceService
 from .inbound import InMemoryConversationStore, InboundValidationError, InboundWebhookService
+from .policy import OutboundPolicy
 
 
 def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     state_store = store or InMemoryConversationStore()
     webhook_service = InboundWebhookService(state_store)
     commerce_store = CommerceDemoStore()
-    commerce_service = CommerceService(state_store, commerce_store)
     app = FastAPI(title="WhatsApp Commerce and Support Agent", version="0.1.0")
     app.state.store = state_store
     app.state.commerce_store = commerce_store
+    app.state.clock = lambda: datetime.now(timezone.utc)
+    commerce_service = CommerceService(
+        state_store,
+        commerce_store,
+        policy=OutboundPolicy(),
+        clock=lambda: app.state.clock(),
+    )
     demo_page = Path(__file__).resolve().parents[1] / "web" / "index.html"
 
     @app.get("/health")
@@ -109,8 +117,55 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
                 "expires_at": _iso(conversation.window_expires_at),
                 "status": conversation.window_status,
             },
+            "policy": {
+                "opted_out": conversation.opted_out,
+                "human_takeover": conversation.human_takeover,
+            },
             "messages": messages,
         }
+
+    @app.get("/inbox/{conversation_id}/policy")
+    def outbound_policy(
+        conversation_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        decision = commerce_service.outbound_policy(conversation_id)
+        return {
+            "allowed": decision.allowed,
+            "code": decision.code,
+            "reason": decision.reason,
+        }
+
+    @app.post("/inbox/{conversation_id}/policy/opt-out")
+    def opt_out(
+        conversation_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        state_store.opt_out(conversation_id)
+        return {"conversation_id": conversation_id, "opted_out": True}
+
+    @app.post("/inbox/{conversation_id}/policy/takeover")
+    def take_over(
+        conversation_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        state_store.take_over(conversation_id)
+        return {"conversation_id": conversation_id, "human_takeover": True}
+
+    @app.post("/inbox/{conversation_id}/policy/resume")
+    def resume(
+        conversation_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        try:
+            state_store.resume(conversation_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"conversation_id": conversation_id, "human_takeover": False}
 
     @app.post("/inbox/{conversation_id}/product-question")
     def product_question(

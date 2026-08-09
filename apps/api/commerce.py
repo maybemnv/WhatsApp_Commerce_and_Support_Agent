@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from hashlib import sha256
+from typing import Callable
 
 from .inbound import InMemoryConversationStore
+from .policy import OutboundPolicy, PolicyDecision
 
 
 class CommerceError(ValueError):
@@ -86,9 +89,19 @@ class CommerceService:
         self,
         inbound_store: InMemoryConversationStore,
         catalog: CommerceDemoStore,
+        *,
+        policy: OutboundPolicy | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.inbound_store = inbound_store
         self.catalog = catalog
+        self.policy = policy or OutboundPolicy()
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def outbound_policy(self, conversation_id: str) -> PolicyDecision:
+        self._require_conversation(conversation_id)
+        conversation = self.inbound_store.conversations[conversation_id]
+        return self.policy.evaluate(conversation, now=self.clock())
 
     def answer_product_question(
         self,
@@ -96,6 +109,9 @@ class CommerceService:
         question: str,
     ) -> ProductQuestionResult:
         self._require_conversation(conversation_id)
+        decision = self.outbound_policy(conversation_id)
+        if not decision.allowed:
+            raise CommerceError(decision.reason)
         product = self.catalog.find_product(question)
         if product is None:
             raise CommerceError("no approved catalog match")

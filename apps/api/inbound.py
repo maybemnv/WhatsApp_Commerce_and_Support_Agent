@@ -43,6 +43,8 @@ class Conversation:
     window_opened_at: datetime | None = None
     window_expires_at: datetime | None = None
     window_status: str = "unknown"
+    opted_out: bool = False
+    human_takeover: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +117,35 @@ class InMemoryConversationStore:
             conversation_id=conversation_id,
             duplicate=False,
         )
+
+    def opt_out(self, conversation_id: str) -> Conversation:
+        conversation = self._conversation(conversation_id)
+        conversation.opted_out = True
+        conversation.status = "opted_out"
+        conversation.version += 1
+        return conversation
+
+    def take_over(self, conversation_id: str) -> Conversation:
+        conversation = self._conversation(conversation_id)
+        conversation.human_takeover = True
+        conversation.status = "human_handoff"
+        conversation.version += 1
+        return conversation
+
+    def resume(self, conversation_id: str) -> Conversation:
+        conversation = self._conversation(conversation_id)
+        if conversation.opted_out:
+            raise ValueError("cannot resume an opted-out conversation")
+        conversation.human_takeover = False
+        conversation.status = "open"
+        conversation.version += 1
+        return conversation
+
+    def _conversation(self, conversation_id: str) -> Conversation:
+        conversation = self.conversations.get(conversation_id)
+        if conversation is None:
+            raise KeyError("conversation not found")
+        return conversation
 
 
 class InboundWebhookService:

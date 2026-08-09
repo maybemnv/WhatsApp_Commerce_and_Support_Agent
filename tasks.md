@@ -16,18 +16,19 @@
 - [x] Added the seeded blue-product catalog, source trace, quantity selection, idempotent test checkout link, and explicit link-created versus payment-confirmed states.
 - [x] Added the responsive operator workbench using the shared root `design.md` visual schema and explicit fixture/provider boundaries.
 - [x] Added regression coverage for normalization, replay, workspace scope, service-window state, product facts, quantity confirmation, payment-link idempotency, and the browser demo surface.
+- [x] Added a deterministic outbound policy decision boundary for active service windows, opt-out, and human takeover, with explicit API controls and regression tests.
 
 ### Not yet complete
 
 - [ ] PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding.
-- [ ] Outbound service-window enforcement, approved-template validation, opt-out/takeover gates, retry/dead-letter handling, and live adapter capability checks remain outstanding.
+- [ ] Enqueue/provider submission enforcement, approved-template validation, configurable opt-out/re-consent, retry/dead-letter handling, and live adapter capability checks remain outstanding; the current slice covers the in-memory policy gate and demo controls.
 - [ ] Order/delivery events, CRM synchronization, appointment handoff, attribution analytics, and full client handoff documentation remain outstanding.
 
 ### Next work queue
 
 1. Add persistent workspace/customer/conversation state and provider signature validation.
-2. Implement policy gates at enqueue and provider-submission boundaries, including opt-out and takeover races.
-3. Add approved-template, retry/dead-letter, order-status, handoff, and audit workflows with regression tests.
+2. Implement approved-template validation and policy checks at enqueue/provider-submission boundaries, including opt-out and takeover races.
+3. Add retry/dead-letter, order-status, handoff, and audit workflows with regression tests.
 4. Add the remaining client demo script, runbook, integration matrix, and acceptance report.
 
 The full checklist below remains the source of the complete Phase 0-5 scope; this status records only verified work in the current checkout.

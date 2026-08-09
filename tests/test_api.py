@@ -104,3 +104,73 @@ def test_demo_commerce_path_returns_product_then_payment_link():
     assert payment.status_code == 200
     assert payment.json()["payment_status"] == "link_created"
     assert payment.json()["conversion"] is False
+
+
+def test_opt_out_blocks_product_reply_and_is_visible_in_policy():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post(
+        "/webhooks/meta_cloud",
+        headers=headers,
+        json=PAYLOAD,
+    )
+    conversation_id = accepted.json()["conversation_id"]
+
+    opted_out = client.post(
+        f"/inbox/{conversation_id}/policy/opt-out",
+        headers=headers,
+    )
+    blocked = client.post(
+        f"/inbox/{conversation_id}/product-question",
+        headers=headers,
+        json={"text": "Is the blue product available?"},
+    )
+    policy = client.get(
+        f"/inbox/{conversation_id}/policy",
+        headers=headers,
+    )
+
+    assert opted_out.status_code == 200
+    assert blocked.status_code == 422
+    assert blocked.json()["detail"] == "outbound blocked: opt-out is active"
+    assert policy.json() == {
+        "allowed": False,
+        "code": "opted_out",
+        "reason": "outbound blocked: opt-out is active",
+    }
+
+
+def test_human_takeover_blocks_until_explicit_resume():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post(
+        "/webhooks/meta_cloud",
+        headers=headers,
+        json=PAYLOAD,
+    )
+    conversation_id = accepted.json()["conversation_id"]
+
+    takeover = client.post(
+        f"/inbox/{conversation_id}/policy/takeover",
+        headers=headers,
+    )
+    blocked = client.post(
+        f"/inbox/{conversation_id}/product-question",
+        headers=headers,
+        json={"text": "Is the blue product available?"},
+    )
+    resumed = client.post(
+        f"/inbox/{conversation_id}/policy/resume",
+        headers=headers,
+    )
+    allowed = client.post(
+        f"/inbox/{conversation_id}/product-question",
+        headers=headers,
+        json={"text": "Is the blue product available?"},
+    )
+
+    assert takeover.status_code == 200
+    assert blocked.status_code == 422
+    assert blocked.json()["detail"] == "outbound blocked: human takeover is active"
+    assert resumed.status_code == 200
+    assert allowed.status_code == 200
