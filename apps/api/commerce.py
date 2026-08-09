@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Callable
+from typing import Callable, Literal
 
 from .inbound import InMemoryConversationStore
 from .policy import OutboundPolicy, PolicyDecision
@@ -24,6 +24,38 @@ class Product:
     price_cents: int
     currency: str
     source: str
+
+
+OrderState = Literal["in_transit", "out_for_delivery", "delivered"]
+SUPPORTED_ORDER_STATES = {"in_transit", "out_for_delivery", "delivered"}
+
+
+@dataclass(slots=True)
+class Order:
+    order_id: str
+    product_id: str
+    status: OrderState = "in_transit"
+    tracking_id: str = "TRK-BLUE-001"
+    source: str = "fixture-commerce"
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OrderStatusResult:
+    state: str
+    message: str
+    status: OrderState | None = None
+    order_id: str | None = None
+    tracking_id: str | None = None
+    source: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryEventResult:
+    event_id: str
+    order_id: str
+    status: OrderState
+    duplicate: bool
 
 
 @dataclass(slots=True)
@@ -64,6 +96,8 @@ class PaymentLinkResult:
 class CommerceDemoStore:
     products: dict[str, Product] = field(default_factory=dict)
     workflows: dict[str, WorkflowRun] = field(default_factory=dict)
+    orders: dict[str, Order] = field(default_factory=dict)
+    delivery_events: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.products:
@@ -76,11 +110,24 @@ class CommerceDemoStore:
                 currency="USD",
                 source="fixture-catalog",
             )
+        if not self.orders:
+            self.orders["ORDER-BLUE-001"] = Order(
+                order_id="ORDER-BLUE-001",
+                product_id="blue-product-001",
+                updated_at=datetime(2026, 8, 9, 10, tzinfo=timezone.utc),
+            )
 
     def find_product(self, query: str) -> Product | None:
         normalized = query.casefold()
         if "blue" in normalized or "product" in normalized:
             return self.products["blue-product-001"]
+        return None
+
+    def find_order(self, reference: str) -> Order | None:
+        normalized = reference.strip().casefold()
+        for order in self.orders.values():
+            if normalized in {order.order_id.casefold(), order.tracking_id.casefold()}:
+                return order
         return None
 
 
@@ -102,6 +149,57 @@ class CommerceService:
         self._require_conversation(conversation_id)
         conversation = self.inbound_store.conversations[conversation_id]
         return self.policy.evaluate(conversation, now=self.clock())
+
+    def lookup_order(self, conversation_id: str, reference: str) -> OrderStatusResult:
+        self._require_conversation(conversation_id)
+        if not reference.strip():
+            raise CommerceError("order reference is required")
+        order = self.catalog.find_order(reference)
+        if order is None:
+            return OrderStatusResult(
+                state="no_match",
+                message="No order matched that reference. Please check the reference and try again.",
+            )
+        return OrderStatusResult(
+            state="matched",
+            message=f"Order {order.order_id} is {order.status}.",
+            status=order.status,
+            order_id=order.order_id,
+            tracking_id=order.tracking_id,
+            source=order.source,
+        )
+
+    def record_delivery_event(
+        self,
+        conversation_id: str,
+        *,
+        event_id: str,
+        order_id: str,
+        status: OrderState,
+        occurred_at: datetime,
+    ) -> DeliveryEventResult:
+        self._require_conversation(conversation_id)
+        order = self.catalog.orders.get(order_id)
+        if order is None:
+            raise CommerceError("order not found")
+        if status not in SUPPORTED_ORDER_STATES:
+            raise CommerceError("unsupported delivery status")
+        if event_id in self.catalog.delivery_events:
+            return DeliveryEventResult(
+                event_id=event_id,
+                order_id=order_id,
+                status=order.status,
+                duplicate=True,
+            )
+        self.catalog.delivery_events[event_id] = order_id
+        order.status = status
+        order.updated_at = occurred_at
+        return DeliveryEventResult(
+            event_id=event_id,
+            order_id=order_id,
+            status=order.status,
+            duplicate=False,
+        )
 
     def answer_product_question(
         self,

@@ -239,6 +239,66 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             "conversion": result.conversion,
         }
 
+    @app.post("/inbox/{conversation_id}/order-status")
+    def order_status(
+        conversation_id: str,
+        body: dict,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        reference = body.get("reference")
+        if not isinstance(reference, str) or not reference.strip():
+            raise HTTPException(status_code=422, detail="reference is required")
+        try:
+            result = commerce_service.lookup_order(conversation_id, reference)
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        payload: dict[str, object] = {
+            "state": result.state,
+            "message": result.message,
+        }
+        if result.state == "matched":
+            payload.update(
+                {
+                    "status": result.status,
+                    "order_id": result.order_id,
+                    "tracking_id": result.tracking_id,
+                    "source": result.source,
+                }
+            )
+        return payload
+
+    @app.post("/inbox/{conversation_id}/delivery-event")
+    def delivery_event(
+        conversation_id: str,
+        body: dict,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        event_id = body.get("event_id")
+        order_id = body.get("order_id")
+        event_status = body.get("status")
+        timestamp = body.get("timestamp")
+        if not all(isinstance(value, str) and value.strip() for value in (event_id, order_id, event_status, timestamp)):
+            raise HTTPException(status_code=422, detail="event_id, order_id, status, and timestamp are required")
+        try:
+            occurred_at = _parse_timestamp(timestamp)
+            result = commerce_service.record_delivery_event(
+                conversation_id,
+                event_id=event_id,
+                order_id=order_id,
+                status=event_status,  # type: ignore[arg-type]
+                occurred_at=occurred_at,
+            )
+        except (CommerceError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "event_id": result.event_id,
+            "order_id": result.order_id,
+            "status": result.status,
+            "duplicate": result.duplicate,
+        }
+
     @app.post("/demo/reset")
     def reset_demo(
         workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
@@ -297,6 +357,17 @@ def _latest_message(store: InMemoryConversationStore, conversation_id: str) -> s
 
 def _iso(value):
     return value.isoformat() if value is not None else None
+
+
+def _parse_timestamp(value: str) -> datetime:
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("timestamp must be ISO-8601") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include a timezone")
+    return parsed.astimezone(timezone.utc)
 
 
 app = create_app()

@@ -17,18 +17,19 @@
 - [x] Added the responsive operator workbench using the shared root `design.md` visual schema and explicit fixture/provider boundaries.
 - [x] Added regression coverage for normalization, replay, workspace scope, service-window state, product facts, quantity confirmation, payment-link idempotency, and the browser demo surface.
 - [x] Added a deterministic outbound policy decision boundary for active service windows, opt-out, and human takeover, with explicit API controls and regression tests.
+- [x] Added a seeded order-status lookup with safe no-match behavior and idempotent delivery-event updates for the client trace.
 
 ### Not yet complete
 
 - [ ] PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding.
 - [ ] Enqueue/provider submission enforcement, approved-template validation, configurable opt-out/re-consent, retry/dead-letter handling, and live adapter capability checks remain outstanding; the current slice covers the in-memory policy gate and demo controls.
-- [ ] Order/delivery events, CRM synchronization, appointment handoff, attribution analytics, and full client handoff documentation remain outstanding.
+- [ ] CRM synchronization, appointment handoff, attribution analytics, and full client handoff documentation remain outstanding; the seeded order/delivery path is implemented.
 
 ### Next work queue
 
 1. Add persistent workspace/customer/conversation state and provider signature validation.
 2. Implement approved-template validation and policy checks at enqueue/provider-submission boundaries, including opt-out and takeover races.
-3. Add retry/dead-letter, order-status, handoff, and audit workflows with regression tests.
+3. Add retry/dead-letter, human-handoff, and audit workflows with regression tests.
 4. Add the remaining client demo script, runbook, integration matrix, and acceptance report.
 
 The full checklist below remains the source of the complete Phase 0-5 scope; this status records only verified work in the current checkout.
@@ -83,7 +84,7 @@ The full checklist below remains the source of the complete Phase 0-5 scope; thi
 - [x] Implement approved catalog retrieval with product IDs, facts, availability, source/tool trace, language preservation, and unsupported-product behavior.
 - [x] Implement recommendation, product selection, quantity capture, confirmation, and interactive-message/text fallback.
 - [x] Create a checkout or Stripe payment link and persist link-created separately from payment-confirmed.
-- [ ] Implement one Shopify/WooCommerce order lookup path with safe identifiers, no-match clarification, multiple-match protection, timestamped source-backed status, and delivery-event updates.
+- [ ] Implement one Shopify/WooCommerce order lookup path with safe identifiers, no-match clarification, multiple-match protection, timestamped source-backed status, and delivery-event updates. (A deterministic fixture order and idempotent delivery-event path are implemented; live adapter behavior remains outstanding.)
 - [ ] Implement appointment field collection and confirmation; create a human task when no booking action is configured.
 - [ ] Implement lead qualification, missing-field display, operator correction, and idempotent HubSpot synchronization.
 - [ ] Implement explicit human-request detection, unsupported-intent handoff, operator claim/reply/resolve, pause, and explicit resume.

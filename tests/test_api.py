@@ -174,3 +174,74 @@ def test_human_takeover_blocks_until_explicit_resume():
     assert blocked.json()["detail"] == "outbound blocked: human takeover is active"
     assert resumed.status_code == 200
     assert allowed.status_code == 200
+
+
+def test_order_status_returns_safe_match_or_no_match():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post(
+        "/webhooks/meta_cloud",
+        headers=headers,
+        json=PAYLOAD,
+    )
+    conversation_id = accepted.json()["conversation_id"]
+
+    matched = client.post(
+        f"/inbox/{conversation_id}/order-status",
+        headers=headers,
+        json={"reference": "ORDER-BLUE-001"},
+    )
+    no_match = client.post(
+        f"/inbox/{conversation_id}/order-status",
+        headers=headers,
+        json={"reference": "ORDER-UNKNOWN"},
+    )
+
+    assert matched.status_code == 200
+    assert matched.json()["state"] == "matched"
+    assert matched.json()["status"] == "in_transit"
+    assert matched.json()["source"] == "fixture-commerce"
+    assert no_match.status_code == 200
+    assert no_match.json() == {
+        "state": "no_match",
+        "message": "No order matched that reference. Please check the reference and try again.",
+    }
+
+
+def test_delivery_event_is_idempotent_and_updates_order_status():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post(
+        "/webhooks/meta_cloud",
+        headers=headers,
+        json=PAYLOAD,
+    )
+    conversation_id = accepted.json()["conversation_id"]
+    event = {
+        "event_id": "delivery-event-001",
+        "order_id": "ORDER-BLUE-001",
+        "status": "delivered",
+        "timestamp": "2026-08-09T12:00:00Z",
+    }
+
+    first = client.post(
+        f"/inbox/{conversation_id}/delivery-event",
+        headers=headers,
+        json=event,
+    )
+    replay = client.post(
+        f"/inbox/{conversation_id}/delivery-event",
+        headers=headers,
+        json=event,
+    )
+    status_response = client.post(
+        f"/inbox/{conversation_id}/order-status",
+        headers=headers,
+        json={"reference": "ORDER-BLUE-001"},
+    )
+
+    assert first.status_code == 200
+    assert first.json()["duplicate"] is False
+    assert replay.status_code == 200
+    assert replay.json()["duplicate"] is True
+    assert status_response.json()["status"] == "delivered"

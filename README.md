@@ -26,10 +26,10 @@ The UI deliberately labels `link created` separately from payment confirmation. 
 python -m pytest -q
 ```
 
-The current slice covers normalized inbound identity, replay deduplication, workspace scoping, service-window opening, inbox/detail APIs, product facts, quantity confirmation, payment-link idempotency, outbound policy checks for service-window/opt-out/takeover state, and the browser demo surface.
+The current slice covers normalized inbound identity, replay deduplication, workspace scoping, service-window opening, inbox/detail APIs, product facts, quantity confirmation, payment-link idempotency, outbound policy checks for service-window/opt-out/takeover state, a fixture order-status/delivery-event path, and the browser demo surface.
 
 ## Current boundary
 
 - Implemented: FastAPI fixture API, in-memory conversation state, seeded blue-product catalog, responsive demo workbench, and typed commerce workflow behavior.
-- Next: PostgreSQL repository, signature verification, service-window enforcement at enqueue/provider submission, approved-template registry, configurable opt-out/re-consent, retry/dead-letter state, and live adapter capability checks.
+- Next: PostgreSQL repository, signature verification, service-window enforcement at enqueue/provider submission, approved-template registry, configurable opt-out/re-consent, retry/dead-letter state, human handoff, and live adapter capability checks.
 - Visual authority: the shared root `design.md` schema is adapted in `apps/web/index.html`; provider-specific capabilities remain explicitly unverified.
