@@ -112,3 +112,56 @@ def test_final_submission_rechecks_opt_out_and_takeover_state():
 
     assert takeover_blocked.status == "blocked"
     assert takeover_blocked.policy_code == "human_takeover"
+
+
+def test_transient_outbound_failures_use_bounded_retry_then_dead_letter():
+    _, service, conversation_id = _service()
+    queued = service.enqueue_template(
+        conversation_id,
+        template_id="order_status_update",
+        locale="en-US",
+        variables={
+            "order_id": "ORDER-BLUE-001",
+            "status": "in_transit",
+            "tracking_id": "TRK-BLUE-001",
+        },
+        workflow="order_status",
+        idempotency_key="template-retry-1",
+    )
+
+    first = service.fail_outbound(conversation_id, queued.command_id, "timeout")
+    second = service.fail_outbound(conversation_id, queued.command_id, "rate_limit")
+    third = service.fail_outbound(conversation_id, queued.command_id, "provider_unavailable")
+    dead_letter = service.fail_outbound(conversation_id, queued.command_id, "provider_unavailable")
+
+    assert first.status == "retryable"
+    assert first.attempts == 1
+    assert first.next_attempt_at is not None
+    assert second.status == "retryable"
+    assert third.status == "retryable"
+    assert dead_letter.status == "dead_letter"
+    assert dead_letter.attempts == 4
+    assert dead_letter.last_error_code == "provider_unavailable"
+
+
+def test_retry_rechecks_policy_before_releasing_a_failed_command():
+    inbound_store, service, conversation_id = _service()
+    queued = service.enqueue_template(
+        conversation_id,
+        template_id="order_status_update",
+        locale="en-US",
+        variables={
+            "order_id": "ORDER-BLUE-001",
+            "status": "in_transit",
+            "tracking_id": "TRK-BLUE-001",
+        },
+        workflow="order_status",
+        idempotency_key="template-retry-2",
+    )
+    service.fail_outbound(conversation_id, queued.command_id, "timeout")
+    inbound_store.opt_out(conversation_id)
+
+    blocked = service.retry_outbound(conversation_id, queued.command_id)
+
+    assert blocked.status == "blocked"
+    assert blocked.policy_code == "opted_out"

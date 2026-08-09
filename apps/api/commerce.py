@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Callable, Literal
 
@@ -73,6 +73,8 @@ class OutboundCommandResult:
     policy_reason: str | None = None
     provider_result: str | None = None
     attempts: int = 0
+    next_attempt_at: str | None = None
+    last_error_code: str | None = None
 
 
 @dataclass(slots=True)
@@ -236,6 +238,71 @@ class CommerceService:
         )
         self.catalog.outbound_commands[command_id] = sent
         return sent
+
+    def fail_outbound(
+        self, conversation_id: str, command_id: str, error_code: str
+    ) -> OutboundCommandResult:
+        self._require_conversation(conversation_id)
+        command = self._outbound_command(conversation_id, command_id)
+        if command.status in {"sent", "blocked", "dead_letter"}:
+            return command
+        if not isinstance(error_code, str) or not error_code.strip():
+            raise CommerceError("error_code is required")
+        attempts = command.attempts + 1
+        transient = error_code in {"timeout", "rate_limit", "provider_unavailable"}
+        if transient and attempts <= 3:
+            backoff_seconds = (5, 30, 300)[attempts - 1]
+            retryable = replace(
+                command,
+                status="retryable",
+                attempts=attempts,
+                next_attempt_at=(self.clock() + timedelta(seconds=backoff_seconds)).isoformat(),
+                last_error_code=error_code,
+                policy_code="provider_retryable",
+                policy_reason="Transient provider failure can be retried with bounded backoff.",
+            )
+        else:
+            retryable = replace(
+                command,
+                status="dead_letter",
+                attempts=attempts,
+                next_attempt_at=None,
+                last_error_code=error_code,
+                policy_code="dead_letter",
+                policy_reason="Provider failure is not safe to retry unchanged.",
+            )
+        self.catalog.outbound_commands[command_id] = retryable
+        return retryable
+
+    def retry_outbound(self, conversation_id: str, command_id: str) -> OutboundCommandResult:
+        self._require_conversation(conversation_id)
+        command = self._outbound_command(conversation_id, command_id)
+        if command.status != "retryable":
+            return command
+        decision = self.outbound_policy(conversation_id)
+        if not decision.allowed:
+            blocked = replace(
+                command,
+                status="blocked",
+                policy_code=decision.code,
+                policy_reason=decision.reason,
+            )
+            self.catalog.outbound_commands[command_id] = blocked
+            return blocked
+        queued = replace(
+            command,
+            status="queued",
+            policy_code="allowed",
+            policy_reason="Policy recheck passed before retry.",
+        )
+        self.catalog.outbound_commands[command_id] = queued
+        return self.submit_outbound(conversation_id, command_id)
+
+    def _outbound_command(self, conversation_id: str, command_id: str) -> OutboundCommandResult:
+        command = self.catalog.outbound_commands.get(command_id)
+        if command is None or command.conversation_id != conversation_id:
+            raise CommerceError("outbound command not found")
+        return command
 
     def outbound_policy(self, conversation_id: str) -> PolicyDecision:
         self._require_conversation(conversation_id)

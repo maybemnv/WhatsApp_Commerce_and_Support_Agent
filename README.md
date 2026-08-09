@@ -34,4 +34,5 @@ The current slice covers normalized inbound identity, replay deduplication, work
 - Implemented: fixture approved-template registry, exact-variable/workflow validation, idempotent outbound command enqueue, and final-send policy rechecks for opt-out and human takeover.
 - Next: PostgreSQL repository, signature verification, configurable opt-out/re-consent, retry/dead-letter state, appointment/CRM workflows, audit persistence, and live adapter capability checks.
 - Template controls: `GET /inbox/{conversationId}/templates`, `POST /inbox/{conversationId}/outbound/templates`, and `POST /inbox/{conversationId}/outbound/{commandId}/submit`.
+- Recovery controls: `POST /inbox/{conversationId}/outbound/{commandId}/fail` classifies a provider failure, and `POST /inbox/{conversationId}/outbound/{commandId}/retry` rechecks policy before retrying a bounded fixture command.
 - Visual authority: the shared root `design.md` schema is adapted in `apps/web/index.html`; provider-specific capabilities remain explicitly unverified.

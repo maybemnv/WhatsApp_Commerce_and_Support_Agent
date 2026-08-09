@@ -249,6 +249,41 @@ def test_template_enqueue_and_final_policy_recheck_are_visible_in_api():
     assert blocked.json()["policy_code"] == "opted_out"
 
 
+def test_transient_template_failure_exposes_retry_and_dead_letter_controls():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD)
+    conversation_id = accepted.json()["conversation_id"]
+    template = {
+        "template_id": "order_status_update",
+        "locale": "en-US",
+        "variables": {
+            "order_id": "ORDER-BLUE-001",
+            "status": "in_transit",
+            "tracking_id": "TRK-BLUE-001",
+        },
+        "workflow": "order_status",
+        "idempotency_key": "api-template-retry-1",
+    }
+    queued = client.post(
+        f"/inbox/{conversation_id}/outbound/templates",
+        headers=headers,
+        json=template,
+    ).json()
+    command_id = queued["command_id"]
+
+    for error_code in ("timeout", "rate_limit", "provider_unavailable", "provider_unavailable"):
+        failure = client.post(
+            f"/inbox/{conversation_id}/outbound/{command_id}/fail",
+            headers=headers,
+            json={"error_code": error_code},
+        )
+
+    assert failure.status_code == 200
+    assert failure.json()["status"] == "dead_letter"
+    assert failure.json()["attempts"] == 4
+
+
 def test_order_status_returns_safe_match_or_no_match():
     client = TestClient(create_app())
     headers = {"X-Workspace-ID": WORKSPACE_ID}

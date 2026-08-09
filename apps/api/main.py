@@ -235,6 +235,36 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return _outbound_payload(command)
 
+    @app.post("/inbox/{conversation_id}/outbound/{command_id}/fail")
+    def fail_outbound(
+        conversation_id: str,
+        command_id: str,
+        body: dict,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        error_code = body.get("error_code")
+        if not isinstance(error_code, str) or not error_code.strip():
+            raise HTTPException(status_code=422, detail="error_code is required")
+        try:
+            command = commerce_service.fail_outbound(conversation_id, command_id, error_code)
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _outbound_payload(command)
+
+    @app.post("/inbox/{conversation_id}/outbound/{command_id}/retry")
+    def retry_outbound(
+        conversation_id: str,
+        command_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        try:
+            command = commerce_service.retry_outbound(conversation_id, command_id)
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _outbound_payload(command)
+
     @app.post("/inbox/{conversation_id}/product-question")
     def product_question(
         conversation_id: str,
@@ -443,6 +473,8 @@ def _outbound_payload(command: object) -> dict[str, object]:
         "policy_reason": command.policy_reason,
         "provider_result": command.provider_result,
         "attempts": command.attempts,
+        "next_attempt_at": command.next_attempt_at,
+        "last_error_code": command.last_error_code,
     }
 
 

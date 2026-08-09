@@ -79,7 +79,7 @@ owners here. Expected future categories are:
 
 1. Start from a clean `master` checkout and install the pinned-range
    requirements.
-2. Run `python -m pytest -q`; the expected current result is 22 passing tests.
+2. Run `python -m pytest -q`; the expected current result is 25 passing tests.
 3. Check `/health` and confirm `{"status":"ok","mode":"fixture"}`.
 4. Open `/demo` and load the inbound fixture.
 5. Walk through product facts, quantity two, checkout link creation, order
@@ -87,7 +87,9 @@ owners here. Expected future categories are:
 6. Open the approved-template list, enqueue an order-status template, replay
    the enqueue request, then opt out and submit it to show the final policy
    recheck blocks the queued command.
-7. Reset with:
+7. Simulate timeout, rate-limit, and provider-unavailable failures to show
+   bounded retry timestamps and the final dead-letter state.
+8. Reset with:
 
 ```powershell
 Invoke-RestMethod -Method Post `
@@ -104,6 +106,8 @@ Invoke-RestMethod -Method Post `
   state; durable enqueue/provider-submission enforcement is not implemented.
 - There is no durable audit log, background worker, retry queue, dead-letter
   store, signature verification, authentication, or authorization layer yet.
+- Outbound retry/dead-letter controls are in-memory fixture state; durable queue
+  ownership, replay tooling, and worker leases still need Supabase/queue work.
 - Add a health/readiness contract, persistence, migrations, reverse proxy TLS,
   observability, backups, retention, and incident handling before any live
   client traffic.
