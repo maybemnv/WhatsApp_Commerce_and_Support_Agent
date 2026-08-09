@@ -42,15 +42,17 @@ Do not expose the development server directly to the public internet.
 ## Supabase target
 
 Supabase is the planned system of record for workspaces, customers,
-conversations, messages, workflow state, policy decisions, audit events, and
-handoff tasks. Add migrations and a repository boundary before switching the
+conversations, messages, workflow state, approved templates, outbound commands,
+orders, policy decisions, audit events, and handoff tasks. The target schema is
+`db/migrations/001_whatsapp_demo.sql` with the seeded fixture in
+`db/seed_commerce_demo.sql`. Add a repository boundary before switching the
 demo from in-memory state. Supabase Auth should own operator identity and
 workspace access; use Supabase Storage only for explicitly approved raw-payload
 or attachment retention.
 
-The code currently does not connect to Supabase. Create the project and add its
-secrets only after the repository, authorization, migration, and reset behavior
-are implemented and tested.
+The running API currently does not connect to Supabase. Create the project and
+add its secrets only after the repository adapter, authorization, migration, and
+reset behavior are implemented and tested.
 
 ## Environment and secrets
 

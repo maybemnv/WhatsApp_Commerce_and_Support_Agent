@@ -21,11 +21,12 @@
 - [x] Added a deterministic human takeover action that creates an operator handoff brief with reason, task ID, and explicit resume behavior.
 - [x] Added five fixture approved-template contracts with exact locale, variable, workflow, local-approval, and provider-approval checks at enqueue time and a final-send policy recheck.
 - [x] Added idempotent outbound command storage plus regression coverage proving opt-out and human takeover block queued sends before provider submission; the fixture result is explicitly `fixture_only`.
+- [x] Added the Supabase/Postgres target migration, demo seed, and blank `.env.example` contract for workspace-scoped conversations, templates, outbound commands, orders, handoffs, and audit state; runtime persistence remains fixture-only until verified.
 - [x] Added `deployment.md` with Supabase target infrastructure, fixture setup, no-secrets environment guidance, demo preflight, and handoff limitations.
 
 ### Not yet complete
 
-- [ ] PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding.
+- [ ] Runtime PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding; the Supabase schema/seed target is now documented and RLS-enabled.
 - [ ] Enqueue/provider submission enforcement, configurable opt-out/re-consent, retry/dead-letter handling, and live adapter capability checks remain outstanding; the current slice covers fixture policy gates and approved-template validation.
 - [ ] CRM synchronization, appointment booking, attribution analytics, and full client handoff documentation remain outstanding; seeded order/delivery and human takeover paths are implemented.
 
