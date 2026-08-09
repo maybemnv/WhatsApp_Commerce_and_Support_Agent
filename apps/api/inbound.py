@@ -45,6 +45,8 @@ class Conversation:
     window_status: str = "unknown"
     opted_out: bool = False
     human_takeover: bool = False
+    handoff_task_id: str | None = None
+    handoff_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,10 +127,17 @@ class InMemoryConversationStore:
         conversation.version += 1
         return conversation
 
-    def take_over(self, conversation_id: str) -> Conversation:
+    def take_over(
+        self,
+        conversation_id: str,
+        *,
+        reason: str = "operator_requested",
+    ) -> Conversation:
         conversation = self._conversation(conversation_id)
         conversation.human_takeover = True
         conversation.status = "human_handoff"
+        conversation.handoff_task_id = f"handoff-{conversation.id}"
+        conversation.handoff_reason = reason
         conversation.version += 1
         return conversation
 

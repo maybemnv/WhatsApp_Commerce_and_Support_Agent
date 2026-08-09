@@ -18,18 +18,19 @@
 - [x] Added regression coverage for normalization, replay, workspace scope, service-window state, product facts, quantity confirmation, payment-link idempotency, and the browser demo surface.
 - [x] Added a deterministic outbound policy decision boundary for active service windows, opt-out, and human takeover, with explicit API controls and regression tests.
 - [x] Added a seeded order-status lookup with safe no-match behavior and idempotent delivery-event updates for the client trace.
+- [x] Added a deterministic human takeover action that creates an operator handoff brief with reason, task ID, and explicit resume behavior.
 
 ### Not yet complete
 
 - [ ] PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding.
 - [ ] Enqueue/provider submission enforcement, approved-template validation, configurable opt-out/re-consent, retry/dead-letter handling, and live adapter capability checks remain outstanding; the current slice covers the in-memory policy gate and demo controls.
-- [ ] CRM synchronization, appointment handoff, attribution analytics, and full client handoff documentation remain outstanding; the seeded order/delivery path is implemented.
+- [ ] CRM synchronization, appointment booking, attribution analytics, and full client handoff documentation remain outstanding; seeded order/delivery and human takeover paths are implemented.
 
 ### Next work queue
 
 1. Add persistent workspace/customer/conversation state and provider signature validation.
 2. Implement approved-template validation and policy checks at enqueue/provider-submission boundaries, including opt-out and takeover races.
-3. Add retry/dead-letter, human-handoff, and audit workflows with regression tests.
+3. Add retry/dead-letter, appointment/CRM, and append-only audit workflows with regression tests.
 4. Add the remaining client demo script, runbook, integration matrix, and acceptance report.
 
 The full checklist below remains the source of the complete Phase 0-5 scope; this status records only verified work in the current checkout.

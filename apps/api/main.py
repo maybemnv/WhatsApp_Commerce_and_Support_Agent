@@ -121,6 +121,15 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
                 "opted_out": conversation.opted_out,
                 "human_takeover": conversation.human_takeover,
             },
+            "handoff": (
+                {
+                    "task_id": conversation.handoff_task_id,
+                    "state": "open",
+                    "reason": conversation.handoff_reason,
+                }
+                if conversation.handoff_task_id is not None
+                else None
+            ),
             "messages": messages,
         }
 
@@ -149,11 +158,20 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     @app.post("/inbox/{conversation_id}/policy/takeover")
     def take_over(
         conversation_id: str,
+        body: dict | None = None,
         workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     ) -> dict[str, object]:
         _require_conversation_scope(state_store, conversation_id, workspace_id)
-        state_store.take_over(conversation_id)
-        return {"conversation_id": conversation_id, "human_takeover": True}
+        reason = (body or {}).get("reason", "operator_requested")
+        if not isinstance(reason, str) or not reason.strip():
+            raise HTTPException(status_code=422, detail="reason must be text")
+        conversation = state_store.take_over(conversation_id, reason=reason.strip())
+        return {
+            "conversation_id": conversation_id,
+            "human_takeover": True,
+            "handoff_task_id": conversation.handoff_task_id,
+            "handoff_reason": conversation.handoff_reason,
+        }
 
     @app.post("/inbox/{conversation_id}/policy/resume")
     def resume(

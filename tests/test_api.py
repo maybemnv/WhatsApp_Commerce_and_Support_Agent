@@ -176,6 +176,35 @@ def test_human_takeover_blocks_until_explicit_resume():
     assert allowed.status_code == 200
 
 
+def test_takeover_exposes_a_handoff_brief_for_the_operator():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    accepted = client.post(
+        "/webhooks/meta_cloud",
+        headers=headers,
+        json=PAYLOAD,
+    )
+    conversation_id = accepted.json()["conversation_id"]
+
+    takeover = client.post(
+        f"/inbox/{conversation_id}/policy/takeover",
+        headers=headers,
+        json={"reason": "customer_requested"},
+    )
+    detail = client.get(
+        f"/inbox/{conversation_id}",
+        headers=headers,
+    )
+
+    assert takeover.status_code == 200
+    assert takeover.json()["handoff_reason"] == "customer_requested"
+    assert detail.json()["handoff"] == {
+        "task_id": f"handoff-{conversation_id}",
+        "state": "open",
+        "reason": "customer_requested",
+    }
+
+
 def test_order_status_returns_safe_match_or_no_match():
     client = TestClient(create_app())
     headers = {"X-Workspace-ID": WORKSPACE_ID}
