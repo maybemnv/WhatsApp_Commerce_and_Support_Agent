@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WhatsApp Commerce and Support</title>
+    <style>
+      :root {
+        --brand-silver: #d9dada;
+        --brand-steel: #adaeb0;
+        --brand-blue: #c3d4e8;
+        --brand-gray: #c6c7c8;
+        --brand-soft: #f3f3f3;
+        --brand-slate: #3e4246;
+        --brand-ink: #121314;
+        --brand-white: #f7f7f7;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-6: 24px;
+        --space-8: 32px;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--brand-soft);
+        color: var(--brand-ink);
+        font: 15px/1.5 "Segoe UI", Arial, sans-serif;
+      }
+      button {
+        border: 1px solid var(--brand-ink);
+        border-radius: 6px;
+        background: var(--brand-ink);
+        color: var(--brand-white);
+        cursor: pointer;
+        font: inherit;
+        padding: 10px 14px;
+      }
+      button.secondary { background: var(--brand-white); color: var(--brand-ink); }
+      button:focus-visible { outline: 3px solid var(--brand-blue); outline-offset: 3px; }
+      .shell { max-width: 1240px; margin: 0 auto; padding: 28px; }
+      .topbar { align-items: center; display: flex; justify-content: space-between; gap: 20px; }
+      .brand { font: 700 27px/1.1 "Trebuchet MS", sans-serif; letter-spacing: -0.5px; }
+      .nav { display: flex; gap: 6px; background: var(--brand-white); border: 1px solid var(--brand-gray); border-radius: 999px; padding: 5px; }
+      .nav span { color: var(--brand-slate); font: 12px Consolas, monospace; padding: 6px 10px; }
+      .nav span.active { background: var(--brand-blue); border-radius: 999px; color: var(--brand-ink); }
+      .note { color: var(--brand-slate); font: 12px Consolas, monospace; }
+      .rule { border: 0; border-top: 1px solid var(--brand-gray); margin: 24px 0; }
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+      .stat, .panel { background: var(--brand-white); border: 1px solid var(--brand-gray); border-radius: 8px; }
+      .stat { padding: 14px 16px; }
+      .stat-label { color: var(--brand-slate); font: 11px Consolas, monospace; text-transform: uppercase; }
+      .stat-value { font: 700 24px "Trebuchet MS", sans-serif; margin-top: 4px; }
+      .workspace { display: grid; grid-template-columns: 0.8fr 1.5fr 0.8fr; gap: 14px; }
+      .panel { min-height: 460px; padding: 18px; }
+      .panel h2 { font: 700 19px "Trebuchet MS", sans-serif; margin: 0 0 14px; }
+      .muted { color: var(--brand-slate); }
+      .row { border: 1px solid var(--brand-gray); border-radius: 6px; padding: 12px; }
+      .row.selected { border-color: var(--brand-ink); background: var(--brand-blue); }
+      .mono { font: 12px Consolas, monospace; }
+      .badge { display: inline-block; border: 1px solid var(--brand-steel); border-radius: 999px; color: var(--brand-slate); font: 11px Consolas, monospace; padding: 3px 8px; }
+      .message { background: var(--brand-soft); border-left: 3px solid var(--brand-blue); margin: 16px 0; padding: 14px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+      .status { border-top: 1px solid var(--brand-gray); color: var(--brand-slate); margin-top: 18px; padding-top: 12px; }
+      .status strong { color: var(--brand-ink); }
+      .checklist { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+      .checklist li { border-bottom: 1px solid var(--brand-gray); padding-bottom: 10px; }
+      @media (max-width: 900px) {
+        .shell { padding: 18px; }
+        .topbar { align-items: flex-start; flex-direction: column; }
+        .stats, .workspace { grid-template-columns: 1fr; }
+        .panel { min-height: auto; }
+        .nav { width: 100%; overflow-x: auto; }
+      }
+      @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <div class="brand">WhatsApp Commerce and Support</div>
+          <div class="note">fixture workbench / human-controlled commerce</div>
+        </div>
+        <nav class="nav" aria-label="Workspace navigation">
+          <span class="active">INBOX</span><span>CUSTOMERS</span><span>FLOWS</span><span>TEMPLATES</span><span>EVENTS</span>
+        </nav>
+      </header>
+
+      <hr class="rule" />
+
+      <section class="stats" aria-label="Operational status">
+        <div class="stat"><div class="stat-label">mode</div><div class="stat-value">Fixture</div></div>
+        <div class="stat"><div class="stat-label">window</div><div class="stat-value" id="windowStat">—</div></div>
+        <div class="stat"><div class="stat-label">workflow</div><div class="stat-value" id="workflowStat">New</div></div>
+        <div class="stat"><div class="stat-label">policy</div><div class="stat-value" id="policyStat">Ready</div></div>
+      </section>
+
+      <section class="workspace">
+        <aside class="panel" aria-label="Conversation inbox">
+          <h2>Inbox</h2>
+          <div id="conversationRow" class="row">
+            <div class="muted">No fixture loaded</div>
+            <div class="mono">Load the inbound message to begin.</div>
+          </div>
+          <div class="actions"><button id="loadButton">Load inbound fixture</button></div>
+          <div id="inboxStatus" class="status" role="status">Waiting for a controlled demo event.</div>
+        </aside>
+
+        <section class="panel" aria-label="Conversation review">
+          <h2>Conversation review</h2>
+          <div id="conversationMeta" class="muted">Jordan Lee · WhatsApp fixture</div>
+          <div id="message" class="message">The transcript will appear here after the fixture is loaded.</div>
+          <div id="productCard" class="row" hidden>
+            <strong id="productName">Blue Product</strong>
+            <div id="productFacts" class="muted"></div>
+            <div class="actions">
+              <button id="askButton" class="secondary">Ask catalog</button>
+              <button id="selectButton" class="secondary" disabled>Select 2</button>
+              <button id="confirmButton" disabled>Confirm and create link</button>
+            </div>
+          </div>
+          <div id="workflowStatus" class="status"><strong>Workflow:</strong> no active run</div>
+        </section>
+
+        <aside class="panel" aria-label="Policy and handoff state">
+          <h2>Policy gate</h2>
+          <ul class="checklist">
+            <li><span class="badge" id="windowBadge">UNKNOWN WINDOW</span><br /><span class="muted">Accepted inbound opens a 24-hour service window.</span></li>
+            <li><span class="badge">SOURCE-BACKED</span><br /><span class="muted">Product facts come from the fixture catalog.</span></li>
+            <li><span class="badge" id="paymentBadge">NO PAYMENT</span><br /><span class="muted">link created is not payment confirmed.</span></li>
+            <li><span class="badge">HUMAN READY</span><br /><span class="muted">Operator takeover remains available.</span></li>
+          </ul>
+          <div id="eventStatus" class="status mono">No events yet.</div>
+        </aside>
+      </section>
+
+      <hr class="rule" />
+      <footer class="note">Demo mode · seeded data only · provider capabilities are intentionally not claimed</footer>
+    </main>
+
+    <script>
+      const workspaceId = "workspace-demo";
+      const headers = { "Content-Type": "application/json", "X-Workspace-ID": workspaceId };
+      let conversationId = null;
+
+      const setText = (id, value) => { document.getElementById(id).textContent = value; };
+      const request = (url, options = {}) => fetch(url, { ...options, headers: { ...headers, ...(options.headers || {}) } });
+
+      async function loadFixture() {
+        const response = await request("/webhooks/meta_cloud", {
+          method: "POST",
+          body: JSON.stringify({
+            event_id: "provider-event-demo-001",
+            message_id: "provider-message-demo-001",
+            from: "+15551234567",
+            text: "Is the blue product available?",
+            timestamp: "2026-08-09T10:00:00Z"
+          })
+        });
+        const result = await response.json();
+        conversationId = result.conversation_id;
+        setText("inboxStatus", result.duplicate ? "Fixture replay ignored safely." : "Fixture accepted once.");
+        setText("windowStat", "Active");
+        setText("windowBadge", "ACTIVE WINDOW");
+        setText("conversationRow", "Jordan Lee · Is the blue product available?");
+        setText("message", "Customer: Is the blue product available?");
+        document.getElementById("productCard").hidden = false;
+        setText("eventStatus", `accepted ${result.event_id} / ${result.conversation_id}`);
+      }
+
+      async function askCatalog() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/product-question`, {
+          method: "POST", body: JSON.stringify({ text: "Is the blue product available?" })
+        });
+        const result = await response.json();
+        setText("productFacts", `${result.availability} · ${result.currency} ${(result.price_cents / 100).toFixed(2)} · ${result.source}`);
+        setText("message", `Agent: ${result.message}`);
+        setText("workflowStat", "Confirm");
+        setText("workflowStatus", "Workflow: awaiting_confirmation · source-backed answer");
+        document.getElementById("selectButton").disabled = false;
+      }
+
+      async function selectProduct() {
+        if (!conversationId) return;
+        await request(`/inbox/${conversationId}/select`, {
+          method: "POST", body: JSON.stringify({ product_id: "blue-product-001", quantity: 2 })
+        });
+        setText("workflowStat", "Selected");
+        setText("workflowStatus", "Workflow: awaiting_confirmation · quantity 2");
+        document.getElementById("confirmButton").disabled = false;
+      }
+
+      async function confirmPurchase() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/confirm`, { method: "POST" });
+        const result = await response.json();
+        setText("workflowStat", "External event");
+        setText("policyStat", "Link only");
+        setText("workflowStatus", `Workflow: awaiting_external_event · ${result.payment_link}`);
+        setText("paymentBadge", "LINK CREATED");
+        setText("message", "Agent: Your checkout link is ready. Payment is not confirmed until the provider event arrives.");
+      }
+
+      document.getElementById("loadButton").addEventListener("click", loadFixture);
+      document.getElementById("askButton").addEventListener("click", askCatalog);
+      document.getElementById("selectButton").addEventListener("click", selectProduct);
+      document.getElementById("confirmButton").addEventListener("click", confirmPurchase);
+    </script>
+  </body>
+</html>
