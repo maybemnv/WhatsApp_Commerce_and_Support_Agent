@@ -132,11 +132,23 @@ class CommerceDemoStore:
                 source="fixture-catalog",
             )
         if not self.orders:
-            self.orders["ORDER-BLUE-001"] = Order(
-                order_id="ORDER-BLUE-001",
-                product_id="blue-product-001",
-                updated_at=datetime(2026, 8, 9, 10, tzinfo=timezone.utc),
-            )
+            self._seed_order()
+
+    def reset(self) -> None:
+        """Restore mutable commerce state without changing the static catalog."""
+        self.workflows.clear()
+        self.delivery_events.clear()
+        self.outbound_commands.clear()
+        self.outbound_idempotency.clear()
+        self.orders.clear()
+        self._seed_order()
+
+    def _seed_order(self) -> None:
+        self.orders["ORDER-BLUE-001"] = Order(
+            order_id="ORDER-BLUE-001",
+            product_id="blue-product-001",
+            updated_at=datetime(2026, 8, 9, 10, tzinfo=timezone.utc),
+        )
 
     def find_product(self, query: str) -> Product | None:
         normalized = query.casefold()

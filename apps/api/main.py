@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -12,6 +13,10 @@ from .inbound import InMemoryConversationStore, InboundValidationError, InboundW
 from .policy import OutboundPolicy
 
 
+DEFAULT_DEMO_NOW = datetime(2026, 8, 9, 12, tzinfo=timezone.utc)
+DEMO_NOW_ENV = "WHATSAPP_DEMO_NOW"
+
+
 def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     state_store = store or InMemoryConversationStore()
     webhook_service = InboundWebhookService(state_store)
@@ -19,7 +24,8 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     app = FastAPI(title="WhatsApp Commerce and Support Agent", version="0.1.0")
     app.state.store = state_store
     app.state.commerce_store = commerce_store
-    app.state.clock = lambda: datetime.now(timezone.utc)
+    app.state.demo_now = _configured_demo_now()
+    app.state.clock = lambda: app.state.demo_now
     commerce_service = CommerceService(
         state_store,
         commerce_store,
@@ -31,6 +37,18 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "mode": "fixture"}
+
+    @app.get("/ready")
+    def ready() -> dict[str, str]:
+        catalog_ready = "blue-product-001" in commerce_store.products
+        order_ready = "ORDER-BLUE-001" in commerce_store.orders
+        fixture_ready = catalog_ready and order_ready
+        return {
+            "status": "ready" if fixture_ready else "not_ready",
+            "mode": "fixture",
+            "catalog": "ready" if catalog_ready else "missing",
+            "seed_order": "ready" if order_ready else "missing",
+        }
 
     @app.get("/demo", include_in_schema=False)
     def demo() -> FileResponse:
@@ -402,31 +420,17 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     ) -> dict[str, object]:
         scoped_workspace = _require_workspace(workspace_id)
-        event_keys = [
-            key for key, event in state_store.events.items() if event.workspace_id == scoped_workspace
-        ]
-        conversation_ids = [
-            key
-            for key, conversation in state_store.conversations.items()
-            if conversation.workspace_id == scoped_workspace
-        ]
-        for key in event_keys:
-            del state_store.events[key]
-        for key in conversation_ids:
-            del state_store.conversations[key]
-        for key, message in list(state_store.messages.items()):
-            if message.conversation_id in conversation_ids:
-                del state_store.messages[key]
-        for key in list(commerce_store.workflows):
-            if key in conversation_ids:
-                del commerce_store.workflows[key]
-        for key, command in list(commerce_store.outbound_commands.items()):
-            if command.conversation_id in conversation_ids:
-                del commerce_store.outbound_commands[key]
-        for key in list(commerce_store.outbound_idempotency):
-            if key[0] in conversation_ids:
-                del commerce_store.outbound_idempotency[key]
-        return {"reset": True, "workspace_id": scoped_workspace}
+        state_store.reset()
+        commerce_store.reset()
+        app.state.demo_now = _configured_demo_now()
+        return {
+            "reset": True,
+            "workspace_id": scoped_workspace,
+            "mode": "fixture",
+            "fixture_clock": app.state.demo_now.isoformat(),
+            "catalog": "ready",
+            "seed_order": "ready",
+        }
 
     return app
 
@@ -491,6 +495,13 @@ def _parse_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("timestamp must include a timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _configured_demo_now() -> datetime:
+    value = os.getenv(DEMO_NOW_ENV)
+    if value is None or not value.strip():
+        return DEFAULT_DEMO_NOW
+    return _parse_timestamp(value.strip())
 
 
 app = create_app()

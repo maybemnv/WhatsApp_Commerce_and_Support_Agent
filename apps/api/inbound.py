@@ -77,6 +77,12 @@ class InMemoryConversationStore:
     conversations: dict[str, Conversation] = field(default_factory=dict)
     messages: dict[str, Message] = field(default_factory=dict)
 
+    def reset(self) -> None:
+        """Restore the empty inbound state used by the fixture walkthrough."""
+        self.events.clear()
+        self.conversations.clear()
+        self.messages.clear()
+
     def accept(self, event: InboundEvent) -> AcceptResult:
         event_key = _event_key(event)
         conversation_id = _conversation_id(event)

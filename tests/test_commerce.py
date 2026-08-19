@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from apps.api.commerce import CommerceDemoStore, CommerceService
 from apps.api.inbound import InMemoryConversationStore, InboundWebhookService
 
@@ -24,7 +26,11 @@ def _conversation_id():
 
 def test_product_question_returns_approved_facts_and_source_trace():
     inbound_store, conversation_id = _conversation_id()
-    service = CommerceService(inbound_store, CommerceDemoStore())
+    service = CommerceService(
+        inbound_store,
+        CommerceDemoStore(),
+        clock=lambda: datetime(2026, 8, 9, 12, tzinfo=timezone.utc),
+    )
 
     result = service.answer_product_question(
         conversation_id,
@@ -41,7 +47,11 @@ def test_product_question_returns_approved_facts_and_source_trace():
 
 def test_confirmed_selection_creates_payment_link_without_claiming_payment_success():
     inbound_store, conversation_id = _conversation_id()
-    service = CommerceService(inbound_store, CommerceDemoStore())
+    service = CommerceService(
+        inbound_store,
+        CommerceDemoStore(),
+        clock=lambda: datetime(2026, 8, 9, 12, tzinfo=timezone.utc),
+    )
 
     service.answer_product_question(conversation_id, "Is the blue product available?")
     service.select_product(conversation_id, product_id="blue-product-001", quantity=2)
