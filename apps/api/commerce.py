@@ -103,6 +103,15 @@ class ProductQuestionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class AnalyticsEvent:
+    event_type: str
+    conversation_id: str
+    source: str
+    workflow: str
+    timestamp: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class PaymentLinkResult:
     state: str
     quantity: int
@@ -119,6 +128,8 @@ class CommerceDemoStore:
     delivery_events: dict[str, str] = field(default_factory=dict)
     outbound_commands: dict[str, OutboundCommandResult] = field(default_factory=dict)
     outbound_idempotency: dict[tuple[str, str], str] = field(default_factory=dict)
+    analytics_events: list[AnalyticsEvent] = field(default_factory=list)
+    analytics_idempotency: set[tuple[str, str]] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if not self.products:
@@ -140,6 +151,8 @@ class CommerceDemoStore:
         self.delivery_events.clear()
         self.outbound_commands.clear()
         self.outbound_idempotency.clear()
+        self.analytics_events.clear()
+        self.analytics_idempotency.clear()
         self.orders.clear()
         self._seed_order()
 
@@ -181,6 +194,40 @@ class CommerceService:
 
     def list_templates(self) -> list[dict[str, object]]:
         return self.templates.list()
+
+    def record_analytics_event(
+        self,
+        conversation_id: str,
+        *,
+        event_type: str,
+        workflow: str,
+        source: str,
+        dedupe_key: str,
+    ) -> AnalyticsEvent | None:
+        self._require_conversation(conversation_id)
+        if source not in {"fixture", "unknown"}:
+            raise CommerceError("analytics source must be fixture or unknown")
+        key = (conversation_id, dedupe_key)
+        if key in self.catalog.analytics_idempotency:
+            return None
+        event = AnalyticsEvent(
+            event_type=event_type,
+            conversation_id=conversation_id,
+            source=source,
+            workflow=workflow,
+            timestamp=self.clock(),
+        )
+        self.catalog.analytics_idempotency.add(key)
+        self.catalog.analytics_events.append(event)
+        return event
+
+    def analytics_for(self, conversation_id: str) -> list[AnalyticsEvent]:
+        self._require_conversation(conversation_id)
+        return [
+            event
+            for event in self.catalog.analytics_events
+            if event.conversation_id == conversation_id
+        ]
 
     def enqueue_template(
         self,
@@ -284,6 +331,17 @@ class CommerceService:
                 policy_reason="Provider failure is not safe to retry unchanged.",
             )
         self.catalog.outbound_commands[command_id] = retryable
+        self.record_analytics_event(
+            conversation_id,
+            event_type=(
+                "outbound_retryable"
+                if retryable.status == "retryable"
+                else "outbound_dead_letter"
+            ),
+            workflow=command.workflow,
+            source="fixture",
+            dedupe_key=f"{command_id}:{retryable.attempts}",
+        )
         return retryable
 
     def retry_outbound(self, conversation_id: str, command_id: str) -> OutboundCommandResult:
@@ -365,6 +423,13 @@ class CommerceService:
         self.catalog.delivery_events[event_id] = order_id
         order.status = status
         order.updated_at = occurred_at
+        self.record_analytics_event(
+            conversation_id,
+            event_type="delivery_update",
+            workflow="order_status",
+            source="fixture",
+            dedupe_key=f"delivery:{event_id}",
+        )
         return DeliveryEventResult(
             event_id=event_id,
             order_id=order_id,
@@ -389,7 +454,7 @@ class CommerceService:
         workflow.product_id = product.product_id
         workflow.state = "awaiting_confirmation"
         workflow.version += 1
-        return ProductQuestionResult(
+        result = ProductQuestionResult(
             state=workflow.state,
             product_id=product.product_id,
             product_name=product.name,
@@ -403,6 +468,14 @@ class CommerceService:
                 "Reply with a quantity to continue."
             ),
         )
+        self.record_analytics_event(
+            conversation_id,
+            event_type="product_answered",
+            workflow="commerce",
+            source="fixture",
+            dedupe_key="product_answered",
+        )
+        return result
 
     def select_product(
         self,
@@ -435,6 +508,13 @@ class CommerceService:
             workflow.payment_status = "link_created"
             workflow.state = "awaiting_external_event"
             workflow.version += 1
+            self.record_analytics_event(
+                conversation_id,
+                event_type="checkout_link_created",
+                workflow="commerce",
+                source="fixture",
+                dedupe_key="checkout_link_created",
+            )
         return PaymentLinkResult(
             state=workflow.state,
             quantity=workflow.quantity,

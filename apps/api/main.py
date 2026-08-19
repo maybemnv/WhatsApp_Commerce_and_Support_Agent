@@ -32,6 +32,7 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         policy=OutboundPolicy(),
         clock=lambda: app.state.clock(),
     )
+    app.state.commerce_service = commerce_service
     demo_page = Path(__file__).resolve().parents[1] / "web" / "index.html"
 
     @app.get("/health")
@@ -70,6 +71,14 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             )
         except InboundValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if not result.duplicate:
+            commerce_service.record_analytics_event(
+                result.conversation_id,
+                event_type="inbound_accepted",
+                workflow="commerce",
+                source="fixture",
+                dedupe_key=f"inbound:{result.event_id}",
+            )
         return {
             "accepted": True,
             "duplicate": result.duplicate,
@@ -151,6 +160,34 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             "messages": messages,
         }
 
+    @app.get("/inbox/{conversation_id}/analytics")
+    def conversation_analytics(
+        conversation_id: str,
+        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    ) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        events = commerce_service.analytics_for(conversation_id)
+        outcomes: dict[str, int] = {}
+        for event in events:
+            outcomes[event.event_type] = outcomes.get(event.event_type, 0) + 1
+        sources = {event.source for event in events}
+        return {
+            "conversation_id": conversation_id,
+            "source": next(iter(sources)) if len(sources) == 1 else "unknown",
+            "workflow": events[-1].workflow if events else "commerce",
+            "events": [
+                {
+                    "event_type": event.event_type,
+                    "conversation_id": event.conversation_id,
+                    "source": event.source,
+                    "workflow": event.workflow,
+                    "timestamp": event.timestamp.isoformat(),
+                }
+                for event in events
+            ],
+            "summary": {"total": len(events), "outcomes": outcomes},
+        }
+
     @app.get("/inbox/{conversation_id}/policy")
     def outbound_policy(
         conversation_id: str,
@@ -171,6 +208,13 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     ) -> dict[str, object]:
         _require_conversation_scope(state_store, conversation_id, workspace_id)
         state_store.opt_out(conversation_id)
+        commerce_service.record_analytics_event(
+            conversation_id,
+            event_type="opt_out",
+            workflow="governance",
+            source="fixture",
+            dedupe_key="opt_out",
+        )
         return {"conversation_id": conversation_id, "opted_out": True}
 
     @app.post("/inbox/{conversation_id}/policy/takeover")
@@ -184,6 +228,13 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         if not isinstance(reason, str) or not reason.strip():
             raise HTTPException(status_code=422, detail="reason must be text")
         conversation = state_store.take_over(conversation_id, reason=reason.strip())
+        commerce_service.record_analytics_event(
+            conversation_id,
+            event_type="human_takeover",
+            workflow="support",
+            source="fixture",
+            dedupe_key="human_takeover",
+        )
         return {
             "conversation_id": conversation_id,
             "human_takeover": True,
