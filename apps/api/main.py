@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 from fastapi import FastAPI, Header, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 
 from .commerce import CommerceDemoStore, CommerceError, CommerceService
@@ -40,16 +40,19 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         return {"status": "ok", "mode": "fixture"}
 
     @app.get("/ready")
-    def ready() -> dict[str, str]:
+    def ready() -> JSONResponse:
         catalog_ready = "blue-product-001" in commerce_store.products
         order_ready = "ORDER-BLUE-001" in commerce_store.orders
         fixture_ready = catalog_ready and order_ready
-        return {
-            "status": "ready" if fixture_ready else "not_ready",
-            "mode": "fixture",
-            "catalog": "ready" if catalog_ready else "missing",
-            "seed_order": "ready" if order_ready else "missing",
-        }
+        return JSONResponse(
+            status_code=200 if fixture_ready else status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "ready" if fixture_ready else "not_ready",
+                "mode": "fixture",
+                "catalog": "ready" if catalog_ready else "missing",
+                "seed_order": "ready" if order_ready else "missing",
+            },
+        )
 
     @app.get("/demo", include_in_schema=False)
     def demo() -> FileResponse:
@@ -471,8 +474,9 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     ) -> dict[str, object]:
         scoped_workspace = _require_workspace(workspace_id)
-        state_store.reset()
-        commerce_store.reset()
+        conversation_ids = state_store.reset_workspace(scoped_workspace)
+        commerce_store.reset_workspace(conversation_ids)
+        commerce_store.restore_seed_order()
         app.state.demo_now = _configured_demo_now()
         return {
             "reset": True,

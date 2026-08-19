@@ -83,6 +83,23 @@ class InMemoryConversationStore:
         self.conversations.clear()
         self.messages.clear()
 
+    def reset_workspace(self, workspace_id: str) -> set[str]:
+        """Remove inbound state for one workspace and return its conversations."""
+        conversation_ids = {
+            conversation_id
+            for conversation_id, conversation in self.conversations.items()
+            if conversation.workspace_id == workspace_id
+        }
+        for event_key, event in list(self.events.items()):
+            if event.workspace_id == workspace_id:
+                del self.events[event_key]
+        for message_id, message in list(self.messages.items()):
+            if message.conversation_id in conversation_ids:
+                del self.messages[message_id]
+        for conversation_id in conversation_ids:
+            del self.conversations[conversation_id]
+        return conversation_ids
+
     def accept(self, event: InboundEvent) -> AcceptResult:
         event_key = _event_key(event)
         conversation_id = _conversation_id(event)

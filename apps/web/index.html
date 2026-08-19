@@ -191,11 +191,16 @@
 
       async function refreshAnalytics() {
         if (!conversationId) return;
-        const response = await request(`/inbox/${conversationId}/analytics`);
-        const result = await response.json();
-        const latest = result.events[result.events.length - 1];
-        const outcome = latest ? latest.event_type : "no events";
-        setText("analyticsStatus", `Attribution: fixture-only / ${result.source} / ${result.workflow} / ${outcome}`);
+        try {
+          const response = await fetch(`/inbox/${conversationId}/analytics`, { headers });
+          if (!response.ok) throw new Error("analytics unavailable");
+          const result = await response.json();
+          const latest = result.events[result.events.length - 1];
+          const outcome = latest ? latest.event_type : "no events";
+          setText("analyticsStatus", `Attribution: fixture-only / ${result.source} / ${result.workflow} / ${outcome}`);
+        } catch (_error) {
+          setText("analyticsStatus", "Attribution temporarily unavailable; checkout can continue.");
+        }
       }
 
       async function loadFixture() {

@@ -107,6 +107,41 @@ def test_ready_is_distinct_from_process_health():
     assert ready.json()["seed_order"] == "ready"
 
 
+def test_reset_only_clears_the_requested_workspace():
+    client = TestClient(create_app())
+    workspace_a = {"X-Workspace-ID": "workspace-a"}
+    workspace_b = {"X-Workspace-ID": "workspace-b"}
+    payload_a = {**PAYLOAD, "event_id": "provider-event-reset-a"}
+    payload_b = {**PAYLOAD, "event_id": "provider-event-reset-b"}
+
+    conversation_a = client.post("/webhooks/meta_cloud", headers=workspace_a, json=payload_a).json()["conversation_id"]
+    conversation_b = client.post("/webhooks/meta_cloud", headers=workspace_b, json=payload_b).json()["conversation_id"]
+    client.post(
+        f"/inbox/{conversation_b}/product-question",
+        headers=workspace_b,
+        json={"text": "Is the blue product available?"},
+    )
+
+    reset = client.post("/demo/reset", headers=workspace_a)
+
+    assert reset.status_code == 200
+    assert client.get("/inbox", headers=workspace_a).json()["items"] == []
+    assert client.get("/inbox", headers=workspace_b).json()["items"][0]["conversation_id"] == conversation_b
+    assert client.get(f"/inbox/{conversation_b}/analytics", headers=workspace_b).json()["events"]
+    assert client.get(f"/inbox/{conversation_a}", headers=workspace_a).status_code == 404
+
+
+def test_ready_returns_service_unavailable_when_fixture_data_is_missing():
+    app = create_app()
+    app.state.commerce_store.orders.clear()
+    client = TestClient(app)
+
+    ready = client.get("/ready")
+
+    assert ready.status_code == 503
+    assert ready.json()["status"] == "not_ready"
+
+
 def test_inbound_store_reset_clears_all_mutable_state():
     store = InMemoryConversationStore()
     InboundWebhookService(store).accept(

@@ -128,6 +128,7 @@ class CommerceDemoStore:
     delivery_events: dict[str, str] = field(default_factory=dict)
     outbound_commands: dict[str, OutboundCommandResult] = field(default_factory=dict)
     outbound_idempotency: dict[tuple[str, str], str] = field(default_factory=dict)
+    delivery_event_conversations: dict[str, str] = field(default_factory=dict)
     analytics_events: list[AnalyticsEvent] = field(default_factory=list)
     analytics_idempotency: set[tuple[str, str]] = field(default_factory=set)
 
@@ -151,9 +152,52 @@ class CommerceDemoStore:
         self.delivery_events.clear()
         self.outbound_commands.clear()
         self.outbound_idempotency.clear()
+        self.delivery_event_conversations.clear()
         self.analytics_events.clear()
         self.analytics_idempotency.clear()
         self.orders.clear()
+        self._seed_order()
+
+    def reset_workspace(self, conversation_ids: set[str]) -> None:
+        """Remove mutable state owned by the supplied conversations only."""
+        self.workflows = {
+            conversation_id: workflow
+            for conversation_id, workflow in self.workflows.items()
+            if conversation_id not in conversation_ids
+        }
+        removed_command_ids = {
+            command_id
+            for command_id, command in self.outbound_commands.items()
+            if command.conversation_id in conversation_ids
+        }
+        for command_id in removed_command_ids:
+            del self.outbound_commands[command_id]
+        self.outbound_idempotency = {
+            key: command_id
+            for key, command_id in self.outbound_idempotency.items()
+            if key[0] not in conversation_ids
+        }
+        removed_delivery_ids = {
+            event_id
+            for event_id, conversation_id in self.delivery_event_conversations.items()
+            if conversation_id in conversation_ids
+        }
+        for event_id in removed_delivery_ids:
+            self.delivery_events.pop(event_id, None)
+            self.delivery_event_conversations.pop(event_id, None)
+        self.analytics_events = [
+            event
+            for event in self.analytics_events
+            if event.conversation_id not in conversation_ids
+        ]
+        self.analytics_idempotency = {
+            key
+            for key in self.analytics_idempotency
+            if key[0] not in conversation_ids
+        }
+
+    def restore_seed_order(self) -> None:
+        """Restore shared fixture order data without clearing other catalog rows."""
         self._seed_order()
 
     def _seed_order(self) -> None:
@@ -421,6 +465,7 @@ class CommerceService:
                 duplicate=True,
             )
         self.catalog.delivery_events[event_id] = order_id
+        self.catalog.delivery_event_conversations[event_id] = conversation_id
         order.status = status
         order.updated_at = occurred_at
         self.record_analytics_event(
