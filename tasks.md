@@ -6,7 +6,7 @@
 
 **Tech stack:** WhatsApp adapter via Meta Cloud API or Twilio, PostgreSQL, Redis/queue, operator web workspace, Shopify or WooCommerce adapter, Stripe payment-link boundary, HubSpot sync boundary, and typed tests, as bounded by `PRD.md`.
 
-## Current status - 2026-08-09
+## Current status - 2026-08-19
 
 ### Verified delivered in the first vertical slice
 
@@ -21,15 +21,17 @@
 - [x] Added a deterministic human takeover action that creates an operator handoff brief with reason, task ID, and explicit resume behavior.
 - [x] Added five fixture approved-template contracts with exact locale, variable, workflow, local-approval, and provider-approval checks at enqueue time and a final-send policy recheck.
 - [x] Added idempotent outbound command storage plus regression coverage proving opt-out and human takeover block queued sends before provider submission; the fixture result is explicitly `fixture_only`.
-- [x] Added bounded `timeout`/`rate_limit`/provider-unavailable retry classification, deterministic 5s/30s/5m backoff timestamps, policy recheck before retry, and dead-letter state after the retry budget; 25 tests pass.
+- [x] Added bounded `timeout`/`rate_limit`/provider-unavailable retry classification, deterministic 5s/30s/5m backoff timestamps, policy recheck before retry, and dead-letter state after the retry budget; the current Python suite has 34 passing tests.
 - [x] Added the Supabase/Postgres target migration, demo seed, and blank `.env.example` contract for workspace-scoped conversations, templates, outbound commands, orders, handoffs, and audit state; runtime persistence remains fixture-only until verified.
 - [x] Added `deployment.md` with Supabase target infrastructure, fixture setup, no-secrets environment guidance, demo preflight, and handoff limitations.
+- [x] Added a deterministic fixture clock, complete repeat-safe reset, distinct `/health` and `/ready` checks, and the `WHATSAPP_DEMO_NOW` demo configuration contract.
+- [x] Added safe non-2xx browser handling, desktop/mobile Playwright coverage (6 passing tests), and a fixture-only attribution trail with reset semantics.
 
 ### Not yet complete
 
 - [ ] Runtime PostgreSQL persistence, workers/queue, authentication/roles, provider signature verification, and durable audit/event storage remain outstanding; the Supabase schema/seed target is now documented and RLS-enabled.
 - [ ] Enqueue/provider submission enforcement, configurable opt-out/re-consent, and live adapter capability checks remain outstanding; the current slice covers fixture policy gates, approved-template validation, and bounded retry/dead-letter state.
-- [ ] CRM synchronization, appointment booking, attribution analytics, and full client handoff documentation remain outstanding; seeded order/delivery and human takeover paths are implemented.
+- [ ] CRM synchronization, appointment booking, durable attribution analytics, and full client handoff documentation remain outstanding; the in-memory fixture attribution panel is implemented for the showcase.
 
 ### Next work queue
 

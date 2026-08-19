@@ -24,17 +24,20 @@ between walkthroughs.
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python -m pytest -q
-python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8000
+python -m pytest -p no:cacheprovider -q
+python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8105
 ```
 
-Open `http://127.0.0.1:8000/demo`.
+Open `http://127.0.0.1:8105/demo`. For the browser smoke prerequisites, run
+`npm --prefix e2e ci` and then `npm --prefix e2e run test`; the suite starts
+the API on port 8105 and covers desktop plus a 390px mobile viewport. Stop the
+API with `Ctrl+C`.
 
 For a shared client-demo machine, bind deliberately and put the process behind
 an authenticated reverse proxy:
 
 ```powershell
-python -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8105
 ```
 
 Do not expose the development server directly to the public internet.
@@ -79,9 +82,10 @@ owners here. Expected future categories are:
 
 1. Start from a clean `master` checkout and install the pinned-range
    requirements.
-2. Run `python -m pytest -q`; the expected current result is 25 passing tests.
+2. Run `python -m pytest -p no:cacheprovider -q`; the expected current result is 34 passing tests.
 3. Check `/health` and confirm `{"status":"ok","mode":"fixture"}`.
-4. Open `/demo` and load the inbound fixture.
+4. Check `/ready` and confirm the fixture catalog and seed order are ready.
+5. Open `/demo` and load the inbound fixture.
 5. Walk through product facts, quantity two, checkout link creation, order
    lookup, delivery event replay, opt-out, takeover, and explicit resume.
 6. Open the approved-template list, enqueue an order-status template, replay
@@ -89,13 +93,16 @@ owners here. Expected future categories are:
    recheck blocks the queued command.
 7. Simulate timeout, rate-limit, and provider-unavailable failures to show
    bounded retry timestamps and the final dead-letter state.
-8. Reset with:
+9. Reset with:
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri http://127.0.0.1:8000/demo/reset `
+  -Uri http://127.0.0.1:8105/demo/reset `
   -Headers @{ 'X-Workspace-ID' = 'workspace-demo' }
 ```
+
+Reset twice to prove the clean baseline is repeat-safe. The reset response is
+fixture-labeled and does not imply durable persistence or provider readiness.
 
 ## Current operational boundaries
 
@@ -108,9 +115,10 @@ Invoke-RestMethod -Method Post `
   store, signature verification, authentication, or authorization layer yet.
 - Outbound retry/dead-letter controls are in-memory fixture state; durable queue
   ownership, replay tooling, and worker leases still need Supabase/queue work.
-- Add a health/readiness contract, persistence, migrations, reverse proxy TLS,
-  observability, backups, retention, and incident handling before any live
-  client traffic.
+- `/health` is process liveness; `/ready` checks only the in-memory fixture
+  catalog and order. There is no durable persistence or live provider health.
+- Add persistence, migrations, reverse proxy TLS, observability, backups,
+  retention, and incident handling before any live client traffic.
 
 ## Release handoff checklist
 

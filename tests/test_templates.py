@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from apps.api.commerce import CommerceDemoStore, CommerceError, CommerceService
@@ -21,7 +23,15 @@ def _service() -> tuple[InMemoryConversationStore, CommerceService, str]:
         adapter="meta_cloud",
         workspace_id=WORKSPACE_ID,
     )
-    return inbound_store, CommerceService(inbound_store, CommerceDemoStore()), accepted.conversation_id
+    return (
+        inbound_store,
+        CommerceService(
+            inbound_store,
+            CommerceDemoStore(),
+            clock=lambda: datetime(2026, 8, 9, 12, tzinfo=timezone.utc),
+        ),
+        accepted.conversation_id,
+    )
 
 
 def test_template_registry_requires_exact_approved_variables():
