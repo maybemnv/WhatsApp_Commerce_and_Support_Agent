@@ -1,69 +1,76 @@
 # WhatsApp Commerce and Support Agent
 
-Fixture-first prototype for a controlled WhatsApp commerce and support workflow.
+Fixture-first commerce and support workbench for controlled inbound WhatsApp conversations, product questions, checkout-link creation, outbound policy checks, delivery events, and human handoff.
 
-## Run the demo
+## Project status
 
-From this directory:
+This repository is a deterministic demo. The current implementation does not claim live Meta/Twilio, Shopify/WooCommerce, Stripe, or HubSpot capability. Provider authentication, durable state, queues, retries, audit persistence, and production workspace authorization remain the next integration boundary.
 
-```powershell
-python -m pip install -r requirements.txt
-python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8105
+## Architecture
+
+```mermaid
+graph LR
+    Web[Demo workbench] --> API[FastAPI API]
+    API --> Store[In-memory fixture store]
+    API --> Catalog[Seeded product catalog]
+    API --> Providers[Future WhatsApp, commerce, payment, CRM adapters]
 ```
 
-Open `http://127.0.0.1:8105/demo` and use the walkthrough controls:
+## Included capabilities
 
-1. Load the inbound WhatsApp fixture.
-2. Ask the seeded catalog about the blue product.
-3. Select quantity two.
-4. Create the test checkout link.
+- Normalized inbound identity and replay deduplication.
+- Workspace-scoped conversation, order, and delivery fixture flows.
+- Product facts, quantity confirmation, and distinct payment-link state.
+- Approved-template validation and outbound policy rechecks.
+- Idempotent outbound commands, failure classification, retry, and handoff.
+- Responsive demo workbench with desktop/mobile Playwright coverage.
 
-The UI deliberately labels `link created` separately from payment confirmation. The current implementation is fixture-backed and does not claim live Meta/Twilio, Shopify/WooCommerce, Stripe, or HubSpot capability.
+## Quick start
 
-## Verify
+Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js/npm for browser tests, and PowerShell.
 
 ```powershell
-python -m pytest -q
+uv run --with-requirements requirements.txt python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8105
+```
+
+Or use the launcher:
+
+```powershell
+.\start-dev.ps1
+```
+
+Open `http://127.0.0.1:8105/demo`, load the inbound fixture, ask about the blue product, select quantity two, and create the test checkout link.
+
+## Verification
+
+```powershell
+uv run --with-requirements requirements.txt pytest -q
 npm --prefix e2e ci
 npm --prefix e2e run test
 ```
 
-The current verified slice is 34 Python tests plus 6 desktop/mobile Playwright
-tests. It covers normalized inbound identity, replay deduplication, workspace
-scoping, a deterministic fixture clock, complete reset/readiness, service-window
-opening, inbox/detail APIs, product facts, quantity confirmation, payment-link
-idempotency, outbound policy checks for service-window/opt-out/takeover state,
-fixture order-status/delivery-event and human-handoff paths, safe browser error
-handling, responsive layout, and fixture-only attribution events.
+The fixture clock, reset, readiness, policy, idempotency, delivery, handoff, and responsive browser paths are covered without paid provider credentials.
+
+## Project structure
+
+```text
+apps/api/       FastAPI routes, policies, stores, and fixture workflows
+apps/web/       Demo workbench
+db/             Schema and seed migration artifacts
+e2e/             Playwright configuration and browser tests
+tests/           API, workflow, policy, reset, and analytics tests
+```
 
 ## Showcase operations
-
-The default demo port is `8105`. Check process health and fixture readiness
-separately:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8105/health
 Invoke-RestMethod http://127.0.0.1:8105/ready
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8105/demo/reset `
-  -Headers @{ 'X-Workspace-ID' = 'workspace-demo' }
+Invoke-RestMethod -Method Post http://127.0.0.1:8105/demo/reset
 ```
 
-`/health` reports only that the process is alive. `/ready` confirms the seeded
-catalog and order are available. Reset is repeat-safe and restores inbound,
-workflow, order, delivery, outbound, and analytics fixture state. Stop the
-local process with `Ctrl+C`.
+Reset affects only the in-memory fixture. `/health` reports process liveness; `/ready` reports fixture readiness. Payment-link creation remains distinct from payment confirmation.
 
-The fixture clock defaults to `2026-08-09T12:00:00Z`, inside the seeded
-24-hour window. Demo configuration may override it with `WHATSAPP_DEMO_NOW`.
-Payment-link creation remains distinct from payment confirmation. WhatsApp,
-commerce, payment, and CRM integrations are fixture-only and are not claimed
-as live capabilities.
+## Production boundary
 
-## Current boundary
-
-- Implemented: FastAPI fixture API, in-memory conversation state, seeded blue-product catalog, responsive demo workbench, and typed commerce workflow behavior.
-- Implemented: fixture approved-template registry, exact-variable/workflow validation, idempotent outbound command enqueue, and final-send policy rechecks for opt-out and human takeover.
-- Next: PostgreSQL repository, signature verification, configurable opt-out/re-consent, retry/dead-letter state, appointment/CRM workflows, audit persistence, and live adapter capability checks.
-- Template controls: `GET /inbox/{conversationId}/templates`, `POST /inbox/{conversationId}/outbound/templates`, and `POST /inbox/{conversationId}/outbound/{commandId}/submit`.
-- Recovery controls: `POST /inbox/{conversationId}/outbound/{commandId}/fail` classifies a provider failure, and `POST /inbox/{conversationId}/outbound/{commandId}/retry` rechecks policy before retrying a bounded fixture command.
-- Visual authority: the shared root `design.md` schema is adapted in `apps/web/index.html`; provider-specific capabilities remain explicitly unverified.
+Before live traffic, add authenticated workspace membership, signed inbound webhook verification, PostgreSQL persistence, durable queues and dead letters, provider delivery reconciliation, opt-out/consent controls, audit retention, backups, rate limits, observability, and recovery tests. The demo reset and caller-supplied workspace header are fixture-only boundaries.
