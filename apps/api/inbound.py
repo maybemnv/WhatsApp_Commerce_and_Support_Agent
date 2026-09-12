@@ -171,11 +171,12 @@ class InMemoryConversationStore:
         )
 
     def opt_out(self, conversation_id: str) -> Conversation:
-        conversation = self._conversation(conversation_id)
-        conversation.opted_out = True
-        conversation.status = "opted_out"
-        conversation.version += 1
-        return conversation
+        with self._lock:
+            conversation = self._conversation(conversation_id)
+            conversation.opted_out = True
+            conversation.status = "opted_out"
+            conversation.version += 1
+            return conversation
 
     def take_over(
         self,

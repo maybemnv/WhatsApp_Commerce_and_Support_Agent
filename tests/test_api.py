@@ -472,6 +472,30 @@ def test_resume_waits_for_the_conversation_lock():
     assert finished.is_set()
 
 
+def test_opt_out_waits_for_the_conversation_lock():
+    store = InMemoryConversationStore()
+    store.accept(normalize_inbound(PAYLOAD, adapter="meta_cloud", workspace_id=WORKSPACE_ID))
+    conversation_id = next(iter(store.conversations))
+    started = Event()
+    finished = Event()
+
+    def opt_out():
+        started.set()
+        store.opt_out(conversation_id)
+        finished.set()
+
+    store._lock.acquire()
+    try:
+        worker = Thread(target=opt_out)
+        worker.start()
+        assert started.wait(1)
+        assert not finished.wait(0.05)
+    finally:
+        store._lock.release()
+    worker.join()
+    assert finished.is_set()
+
+
 def test_takeover_after_resolved_handoff_creates_a_fresh_open_task():
     client = TestClient(create_app())
     headers = {"X-Workspace-ID": WORKSPACE_ID}
