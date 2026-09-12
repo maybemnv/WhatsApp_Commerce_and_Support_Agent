@@ -189,10 +189,9 @@ class InMemoryConversationStore:
             conversation.status = "human_handoff"
             conversation.handoff_task_id = f"handoff-{conversation.id}"
             conversation.handoff_reason = reason
-            self.handoffs.setdefault(
-                conversation_id,
-                HandoffTask(conversation_id=conversation_id, reason=reason),
-            )
+            task = self.handoffs.get(conversation_id)
+            if task is None or task.state == "resolved":
+                self.handoffs[conversation_id] = HandoffTask(conversation_id=conversation_id, reason=reason)
             conversation.version += 1
             return conversation
 
@@ -236,13 +235,14 @@ class InMemoryConversationStore:
             return conversation
 
     def resume(self, conversation_id: str) -> Conversation:
-        conversation = self._conversation(conversation_id)
-        if conversation.opted_out:
-            raise ValueError("cannot resume an opted-out conversation")
-        conversation.human_takeover = False
-        conversation.status = "open"
-        conversation.version += 1
-        return conversation
+        with self._lock:
+            conversation = self._conversation(conversation_id)
+            if conversation.opted_out:
+                raise ValueError("cannot resume an opted-out conversation")
+            conversation.human_takeover = False
+            conversation.status = "open"
+            conversation.version += 1
+            return conversation
 
     def _claimed_handoff(self, conversation_id: str, operator_id: str) -> HandoffTask:
         task = self.handoffs.get(conversation_id)

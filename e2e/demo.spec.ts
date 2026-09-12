@@ -82,6 +82,18 @@ test("fixture controls expose appointment, lead, handoff, consent, and outbound 
   await expect(page.locator("#controlStatus")).toContainText("templates");
 });
 
+test("switching away from commerce disables stale selection controls", async ({ page }) => {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Load inbound fixture" }).click();
+  await page.getByRole("button", { name: "Ask catalog" }).click();
+  await expect(page.locator("#selectButton")).toBeEnabled();
+
+  await page.getByRole("button", { name: "Request appointment" }).click();
+
+  await expect(page.locator("#selectButton")).toBeDisabled();
+  await expect(page.locator("#confirmButton")).toBeDisabled();
+});
+
 test("reconsent and control inspection expose policy-safe fixture state", async ({ page, request }) => {
   const accepted = await request.post("/webhooks/meta_cloud", {
     headers: workspaceHeaders,

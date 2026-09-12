@@ -154,7 +154,7 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             "handoff": (
                 {
                     "task_id": conversation.handoff_task_id,
-                    "state": "open",
+                    "state": state_store.handoffs[conversation.id].state,
                     "reason": conversation.handoff_reason,
                 }
                 if conversation.handoff_task_id is not None
@@ -304,7 +304,13 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             state_store.reconsent(conversation_id, operator_id=operator_id.strip(), evidence=evidence.strip())
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        commerce_service.record_analytics_event(conversation_id, event_type="consent_reconfirmed", workflow="governance", source="fixture", dedupe_key="consent_reconfirmed")
+        commerce_service.record_analytics_event(
+            conversation_id,
+            event_type="consent_reconfirmed",
+            workflow="governance",
+            source="fixture",
+            dedupe_key=f"consent_reconfirmed:{conversation_id}:{state_store.conversations[conversation_id].version}",
+        )
         return {"conversation_id": conversation_id, "opted_out": False, "consent": "reconfirmed"}
 
     @app.get("/inbox/{conversation_id}/controls")
