@@ -216,7 +216,7 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             event_type="opt_out",
             workflow="governance",
             source="fixture",
-            dedupe_key="opt_out",
+            dedupe_key=f"opt_out:{conversation_id}:{state_store.conversations[conversation_id].version}",
         )
         return {"conversation_id": conversation_id, "opted_out": True}
 

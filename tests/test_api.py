@@ -511,4 +511,6 @@ def test_repeated_opt_out_and_reconsent_cycles_are_recorded():
 
     analytics = client.get(f"/inbox/{conversation_id}/analytics", headers=headers).json()
 
-    assert [event["event_type"] for event in analytics["events"]].count("consent_reconfirmed") == 2
+    event_types = [event["event_type"] for event in analytics["events"]]
+    assert event_types.count("opt_out") == 2
+    assert event_types.count("consent_reconfirmed") == 2
