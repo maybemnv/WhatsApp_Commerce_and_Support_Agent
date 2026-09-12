@@ -120,6 +120,13 @@ class PaymentLinkResult:
     conversion: bool
 
 
+@dataclass(frozen=True, slots=True)
+class FixtureOutcomeResult:
+    state: str
+    outcome: str
+    provider_result: str
+
+
 @dataclass(slots=True)
 class CommerceDemoStore:
     products: dict[str, Product] = field(default_factory=dict)
@@ -272,6 +279,48 @@ class CommerceService:
             for event in self.catalog.analytics_events
             if event.conversation_id == conversation_id
         ]
+
+    def outbound_for(self, conversation_id: str) -> list[OutboundCommandResult]:
+        self._require_conversation(conversation_id)
+        return [
+            command
+            for command in self.catalog.outbound_commands.values()
+            if command.conversation_id == conversation_id
+        ]
+
+    def request_appointment(
+        self, conversation_id: str, *, customer_name: str, appointment_at: str
+    ) -> FixtureOutcomeResult:
+        if not customer_name.strip() or not appointment_at.strip():
+            raise CommerceError("customer_name and appointment_at are required")
+        workflow = self._workflow(conversation_id)
+        workflow.state = "awaiting_external_event"
+        workflow.version += 1
+        self.record_analytics_event(
+            conversation_id,
+            event_type="appointment_requested",
+            workflow="appointment",
+            source="fixture",
+            dedupe_key=f"appointment:{customer_name}:{appointment_at}",
+        )
+        return FixtureOutcomeResult("awaiting_external_event", "appointment_requested", "fixture_only")
+
+    def qualify_lead(
+        self, conversation_id: str, *, name: str, email: str, interest: str
+    ) -> FixtureOutcomeResult:
+        if not name.strip() or not interest.strip() or "@" not in email:
+            raise CommerceError("name, email, and interest are required")
+        workflow = self._workflow(conversation_id)
+        workflow.state = "completed"
+        workflow.version += 1
+        self.record_analytics_event(
+            conversation_id,
+            event_type="lead_qualified",
+            workflow="lead_qualification",
+            source="fixture",
+            dedupe_key=f"lead:{email.casefold()}",
+        )
+        return FixtureOutcomeResult("completed", "lead_qualified", "fixture_only")
 
     def enqueue_template(
         self,

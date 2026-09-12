@@ -65,3 +65,40 @@ test("mobile layout keeps the fixture controls reachable without horizontal over
   expect(fitsViewport).toBeTruthy();
   await expect(page.locator("#confirmButton")).toBeVisible();
 });
+
+test("fixture controls expose appointment, lead, handoff, consent, and outbound inspection", async ({ page }) => {
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Load inbound fixture" }).click();
+  await page.getByRole("button", { name: "Request appointment" }).click();
+  await expect(page.locator("#workflowStatus")).toContainText("appointment_requested");
+  await page.getByRole("button", { name: "Qualify lead" }).click();
+  await expect(page.locator("#workflowStatus")).toContainText("lead_qualified");
+  await page.getByRole("button", { name: "Take over" }).click();
+  await page.getByRole("button", { name: "Claim handoff" }).click();
+  await page.getByRole("button", { name: "Reply as operator" }).click();
+  await page.getByRole("button", { name: "Resolve handoff" }).click();
+  await page.getByRole("button", { name: "Resume automation" }).click();
+  await page.getByRole("button", { name: "Inspect outbound controls" }).click();
+  await expect(page.locator("#controlStatus")).toContainText("templates");
+});
+
+test("reconsent and control inspection expose policy-safe fixture state", async ({ page, request }) => {
+  const accepted = await request.post("/webhooks/meta_cloud", {
+    headers: workspaceHeaders,
+    data: inboundFixture,
+  });
+  const conversationId = (await accepted.json()).conversation_id as string;
+  await request.post(`/inbox/${conversationId}/policy/opt-out`, { headers: workspaceHeaders });
+
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Load inbound fixture" }).click();
+  await page.getByRole("button", { name: "Reconfirm consent" }).click();
+  await expect(page.locator("#controlStatus")).toContainText("consent reconfirmed");
+  await page.getByRole("button", { name: "Queue approved template" }).click();
+  await page.getByRole("button", { name: "Simulate timeout" }).click();
+  await page.getByRole("button", { name: "Inspect outbound controls" }).click();
+
+  await expect(page.locator("#controlStatus")).toContainText("outbound retryable");
+  await expect(page.locator("#controlStatus")).toContainText("policy allowed");
+  await expect(page.locator("#controlStatus")).toContainText("attribution fixture");
+});

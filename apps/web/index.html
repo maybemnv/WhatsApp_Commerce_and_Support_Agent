@@ -125,6 +125,16 @@
           </div>
           <div id="errorStatus" class="status error" role="alert" aria-live="polite" hidden></div>
           <div id="workflowStatus" class="status"><strong>Workflow:</strong> no active run</div>
+          <div class="actions">
+            <button id="appointmentButton" class="secondary">Request appointment</button>
+            <button id="leadButton" class="secondary">Qualify lead</button>
+            <button id="takeoverButton" class="secondary">Take over</button>
+            <button id="claimButton" class="secondary">Claim handoff</button>
+            <button id="replyButton" class="secondary">Reply as operator</button>
+            <button id="resolveButton" class="secondary">Resolve handoff</button>
+            <button id="resumeButton" class="secondary">Resume automation</button>
+            <button id="reconsentButton" class="secondary">Reconfirm consent</button>
+          </div>
         </section>
 
         <aside class="panel" aria-label="Policy and handoff state">
@@ -137,6 +147,13 @@
           </ul>
           <div id="eventStatus" class="status mono">No events yet.</div>
           <div id="analyticsStatus" class="status mono"><strong>Attribution:</strong> fixture-only / no events yet.</div>
+          <div class="actions">
+            <button id="queueTemplateButton" class="secondary">Queue approved template</button>
+            <button id="failOutboundButton" class="secondary">Simulate timeout</button>
+            <button id="retryOutboundButton" class="secondary">Retry outbound</button>
+            <button id="controlsButton" class="secondary">Inspect outbound controls</button>
+          </div>
+          <div id="controlStatus" class="status mono">Controls not inspected.</div>
         </aside>
       </section>
 
@@ -148,6 +165,8 @@
       const workspaceId = "workspace-demo";
       const headers = { "Content-Type": "application/json", "X-Workspace-ID": workspaceId };
       let conversationId = null;
+      let conversationVersion = null;
+      let outboundId = null;
 
       const setText = (id, value) => { document.getElementById(id).textContent = value; };
       const showError = (error) => {
@@ -216,6 +235,8 @@
         });
         const result = await response.json();
         conversationId = result.conversation_id;
+        const detail = await request(`/inbox/${conversationId}`);
+        conversationVersion = (await detail.json()).version;
         setText("inboxStatus", result.duplicate ? "Fixture replay ignored safely." : "Fixture accepted once.");
         setText("windowStat", "Active");
         setText("windowBadge", "ACTIVE WINDOW");
@@ -262,10 +283,112 @@
         await refreshAnalytics();
       }
 
+      async function requestAppointment() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/appointment`, { method: "POST", body: JSON.stringify({ customer_name: "Jordan Lee", appointment_at: "2026-08-12T15:00:00Z" }) });
+        const result = await response.json();
+        setText("workflowStatus", `Workflow: ${result.outcome} Â· ${result.provider_result}`);
+        await refreshAnalytics();
+      }
+
+      async function qualifyLead() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/lead`, { method: "POST", body: JSON.stringify({ name: "Jordan Lee", email: "jordan@example.test", interest: "Blue Product" }) });
+        const result = await response.json();
+        setText("workflowStatus", `Workflow: ${result.outcome} Â· ${result.provider_result}`);
+        await refreshAnalytics();
+      }
+
+      async function takeOver() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/policy/takeover`, { method: "POST", body: JSON.stringify({ reason: "operator_requested" }) });
+        const result = await response.json();
+        conversationVersion = result.version;
+        setText("workflowStatus", "Workflow: human handoff open");
+      }
+
+      async function claimHandoff() {
+        if (!conversationId || conversationVersion === null) return;
+        const response = await request(`/inbox/${conversationId}/handoff/claim`, { method: "POST", body: JSON.stringify({ operator_id: "operator-demo", expected_version: conversationVersion }) });
+        const result = await response.json();
+        conversationVersion += 1;
+        setText("workflowStatus", `Workflow: handoff ${result.state}`);
+      }
+
+      async function replyHandoff() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/handoff/reply`, { method: "POST", body: JSON.stringify({ operator_id: "operator-demo", text: "I can help with that." }) });
+        const result = await response.json();
+        setText("workflowStatus", `Workflow: handoff ${result.state} Â· ${result.replies} reply`);
+      }
+
+      async function resolveHandoff() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/handoff/resolve`, { method: "POST", body: JSON.stringify({ operator_id: "operator-demo" }) });
+        const result = await response.json();
+        setText("workflowStatus", `Workflow: handoff ${result.state}`);
+      }
+
+      async function resumeAutomation() {
+        if (!conversationId) return;
+        await request(`/inbox/${conversationId}/policy/resume`, { method: "POST" });
+        setText("workflowStatus", "Workflow: automation resumed");
+      }
+
+      async function reconfirmConsent() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/policy/reconsent`, { method: "POST", body: JSON.stringify({ operator_id: "operator-demo", evidence: "fixture customer asked to receive messages" }) });
+        const result = await response.json();
+        setText("controlStatus", `consent ${result.consent} / opt-out ${result.opted_out ? "active" : "cleared"}`);
+      }
+
+      async function queueTemplate() {
+        if (!conversationId) return;
+        const response = await request(`/inbox/${conversationId}/outbound/templates`, { method: "POST", body: JSON.stringify({ template_id: "order_status_update", locale: "en-US", variables: { order_id: "ORDER-BLUE-001", status: "in_transit", tracking_id: "TRK-BLUE-001" }, workflow: "order_status", idempotency_key: "demo-template-control" }) });
+        outboundId = (await response.json()).command_id;
+        await inspectControls();
+      }
+
+      async function failOutbound() {
+        if (!conversationId || !outboundId) return;
+        await request(`/inbox/${conversationId}/outbound/${outboundId}/fail`, { method: "POST", body: JSON.stringify({ error_code: "timeout" }) });
+        await inspectControls();
+      }
+
+      async function retryOutbound() {
+        if (!conversationId || !outboundId) return;
+        await request(`/inbox/${conversationId}/outbound/${outboundId}/retry`, { method: "POST" });
+        await inspectControls();
+      }
+
+      async function inspectControls() {
+        if (!conversationId) return;
+        const [controlsResponse, policyResponse] = await Promise.all([
+          request(`/inbox/${conversationId}/controls`),
+          request(`/inbox/${conversationId}/policy`),
+        ]);
+        const result = await controlsResponse.json();
+        const policy = await policyResponse.json();
+        const states = [...new Set(result.outbound.map((command) => command.status))].join(", ") || "none";
+        setText("controlStatus", `templates ${result.templates.length} / outbound ${states} / policy ${policy.code} / attribution ${result.attribution.source} (${result.attribution.events} events)`);
+      }
+
       document.getElementById("loadButton").addEventListener("click", () => run(loadFixture));
       document.getElementById("askButton").addEventListener("click", () => run(askCatalog));
       document.getElementById("selectButton").addEventListener("click", () => run(selectProduct));
       document.getElementById("confirmButton").addEventListener("click", () => run(confirmPurchase));
+      document.getElementById("appointmentButton").addEventListener("click", () => run(requestAppointment));
+      document.getElementById("leadButton").addEventListener("click", () => run(qualifyLead));
+      document.getElementById("takeoverButton").addEventListener("click", () => run(takeOver));
+      document.getElementById("claimButton").addEventListener("click", () => run(claimHandoff));
+      document.getElementById("replyButton").addEventListener("click", () => run(replyHandoff));
+      document.getElementById("resolveButton").addEventListener("click", () => run(resolveHandoff));
+      document.getElementById("resumeButton").addEventListener("click", () => run(resumeAutomation));
+      document.getElementById("reconsentButton").addEventListener("click", () => run(reconfirmConsent));
+      document.getElementById("queueTemplateButton").addEventListener("click", () => run(queueTemplate));
+      document.getElementById("failOutboundButton").addEventListener("click", () => run(failOutbound));
+      document.getElementById("retryOutboundButton").addEventListener("click", () => run(retryOutbound));
+      document.getElementById("controlsButton").addEventListener("click", () => run(inspectControls));
     </script>
   </body>
 </html>

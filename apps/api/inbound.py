@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+from threading import Lock
 from typing import Any, Literal, Mapping
 from uuid import UUID, uuid5
 
@@ -49,6 +50,23 @@ class Conversation:
     handoff_reason: str | None = None
 
 
+@dataclass(slots=True)
+class HandoffTask:
+    conversation_id: str
+    reason: str
+    state: str = "open"
+    claimed_by: str | None = None
+    replies: list[tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditEvent:
+    conversation_id: str
+    event_type: str
+    actor_id: str
+    detail: str
+
+
 @dataclass(frozen=True, slots=True)
 class Message:
     id: str
@@ -76,12 +94,17 @@ class InMemoryConversationStore:
     events: dict[str, InboundEvent] = field(default_factory=dict)
     conversations: dict[str, Conversation] = field(default_factory=dict)
     messages: dict[str, Message] = field(default_factory=dict)
+    handoffs: dict[str, HandoffTask] = field(default_factory=dict)
+    audit_events: list[AuditEvent] = field(default_factory=list)
+    _lock: Lock = field(default_factory=Lock, repr=False)
 
     def reset(self) -> None:
         """Restore the empty inbound state used by the fixture walkthrough."""
         self.events.clear()
         self.conversations.clear()
         self.messages.clear()
+        self.handoffs.clear()
+        self.audit_events.clear()
 
     def reset_workspace(self, workspace_id: str) -> set[str]:
         """Remove inbound state for one workspace and return its conversations."""
@@ -98,6 +121,10 @@ class InMemoryConversationStore:
                 del self.messages[message_id]
         for conversation_id in conversation_ids:
             del self.conversations[conversation_id]
+            self.handoffs.pop(conversation_id, None)
+        self.audit_events = [
+            event for event in self.audit_events if event.conversation_id not in conversation_ids
+        ]
         return conversation_ids
 
     def accept(self, event: InboundEvent) -> AcceptResult:
@@ -156,13 +183,57 @@ class InMemoryConversationStore:
         *,
         reason: str = "operator_requested",
     ) -> Conversation:
-        conversation = self._conversation(conversation_id)
-        conversation.human_takeover = True
-        conversation.status = "human_handoff"
-        conversation.handoff_task_id = f"handoff-{conversation.id}"
-        conversation.handoff_reason = reason
-        conversation.version += 1
-        return conversation
+        with self._lock:
+            conversation = self._conversation(conversation_id)
+            conversation.human_takeover = True
+            conversation.status = "human_handoff"
+            conversation.handoff_task_id = f"handoff-{conversation.id}"
+            conversation.handoff_reason = reason
+            self.handoffs.setdefault(
+                conversation_id,
+                HandoffTask(conversation_id=conversation_id, reason=reason),
+            )
+            conversation.version += 1
+            return conversation
+
+    def claim_handoff(
+        self, conversation_id: str, *, operator_id: str, expected_version: int
+    ) -> HandoffTask:
+        with self._lock:
+            conversation = self._conversation(conversation_id)
+            task = self.handoffs.get(conversation_id)
+            if task is None or conversation.version != expected_version or task.state != "open":
+                raise ValueError("handoff version conflict")
+            task.state = "claimed"
+            task.claimed_by = operator_id
+            conversation.version += 1
+            self.audit_events.append(AuditEvent(conversation_id, "handoff_claimed", operator_id, task.reason))
+            return task
+
+    def reply_to_handoff(self, conversation_id: str, *, operator_id: str, text: str) -> HandoffTask:
+        with self._lock:
+            task = self._claimed_handoff(conversation_id, operator_id)
+            task.replies.append((operator_id, text))
+            self.audit_events.append(AuditEvent(conversation_id, "operator_replied", operator_id, text))
+            return task
+
+    def resolve_handoff(self, conversation_id: str, *, operator_id: str) -> HandoffTask:
+        with self._lock:
+            task = self._claimed_handoff(conversation_id, operator_id)
+            task.state = "resolved"
+            self.audit_events.append(AuditEvent(conversation_id, "handoff_resolved", operator_id, task.reason))
+            return task
+
+    def reconsent(self, conversation_id: str, *, operator_id: str, evidence: str) -> Conversation:
+        with self._lock:
+            conversation = self._conversation(conversation_id)
+            if not conversation.opted_out:
+                raise ValueError("conversation is not opted out")
+            conversation.opted_out = False
+            conversation.status = "human_handoff" if conversation.human_takeover else "open"
+            conversation.version += 1
+            self.audit_events.append(AuditEvent(conversation_id, "consent_reconfirmed", operator_id, evidence))
+            return conversation
 
     def resume(self, conversation_id: str) -> Conversation:
         conversation = self._conversation(conversation_id)
@@ -172,6 +243,12 @@ class InMemoryConversationStore:
         conversation.status = "open"
         conversation.version += 1
         return conversation
+
+    def _claimed_handoff(self, conversation_id: str, operator_id: str) -> HandoffTask:
+        task = self.handoffs.get(conversation_id)
+        if task is None or task.state != "claimed" or task.claimed_by != operator_id:
+            raise ValueError("handoff is not claimed by this operator")
+        return task
 
     def _conversation(self, conversation_id: str) -> Conversation:
         conversation = self.conversations.get(conversation_id)
