@@ -154,7 +154,7 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             "handoff": (
                 {
                     "task_id": conversation.handoff_task_id,
-                    "state": "open",
+                    "state": state_store.handoffs[conversation.id].state,
                     "reason": conversation.handoff_reason,
                 }
                 if conversation.handoff_task_id is not None
@@ -216,7 +216,7 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             event_type="opt_out",
             workflow="governance",
             source="fixture",
-            dedupe_key="opt_out",
+            dedupe_key=f"opt_out:{conversation_id}:{state_store.conversations[conversation_id].version}",
         )
         return {"conversation_id": conversation_id, "opted_out": True}
 
@@ -243,7 +243,44 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             "human_takeover": True,
             "handoff_task_id": conversation.handoff_task_id,
             "handoff_reason": conversation.handoff_reason,
+            "version": conversation.version,
         }
+
+    @app.post("/inbox/{conversation_id}/handoff/claim")
+    def claim_handoff(conversation_id: str, body: dict, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        operator_id, expected_version = body.get("operator_id"), body.get("expected_version")
+        if not isinstance(operator_id, str) or not operator_id.strip() or isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise HTTPException(status_code=422, detail="operator_id and expected_version are required")
+        try:
+            task = state_store.claim_handoff(conversation_id, operator_id=operator_id.strip(), expected_version=expected_version)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"task_id": f"handoff-{conversation_id}", "state": task.state, "operator_id": task.claimed_by}
+
+    @app.post("/inbox/{conversation_id}/handoff/reply")
+    def reply_handoff(conversation_id: str, body: dict, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        operator_id, text = body.get("operator_id"), body.get("text")
+        if not isinstance(operator_id, str) or not operator_id.strip() or not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=422, detail="operator_id and text are required")
+        try:
+            task = state_store.reply_to_handoff(conversation_id, operator_id=operator_id.strip(), text=text.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"task_id": f"handoff-{conversation_id}", "state": task.state, "replies": len(task.replies)}
+
+    @app.post("/inbox/{conversation_id}/handoff/resolve")
+    def resolve_handoff(conversation_id: str, body: dict, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        operator_id = body.get("operator_id")
+        if not isinstance(operator_id, str) or not operator_id.strip():
+            raise HTTPException(status_code=422, detail="operator_id is required")
+        try:
+            task = state_store.resolve_handoff(conversation_id, operator_id=operator_id.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"task_id": f"handoff-{conversation_id}", "state": task.state}
 
     @app.post("/inbox/{conversation_id}/policy/resume")
     def resume(
@@ -256,6 +293,32 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"conversation_id": conversation_id, "human_takeover": False}
+
+    @app.post("/inbox/{conversation_id}/policy/reconsent")
+    def reconsent(conversation_id: str, body: dict, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        operator_id, evidence = body.get("operator_id"), body.get("evidence")
+        if not isinstance(operator_id, str) or not operator_id.strip() or not isinstance(evidence, str) or not evidence.strip():
+            raise HTTPException(status_code=422, detail="operator_id and evidence are required")
+        try:
+            state_store.reconsent(conversation_id, operator_id=operator_id.strip(), evidence=evidence.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        commerce_service.record_analytics_event(
+            conversation_id,
+            event_type="consent_reconfirmed",
+            workflow="governance",
+            source="fixture",
+            dedupe_key=f"consent_reconfirmed:{conversation_id}:{state_store.conversations[conversation_id].version}",
+        )
+        return {"conversation_id": conversation_id, "opted_out": False, "consent": "reconfirmed"}
+
+    @app.get("/inbox/{conversation_id}/controls")
+    def controls(conversation_id: str, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        events = commerce_service.analytics_for(conversation_id)
+        source = events[-1].source if events else "fixture"
+        return {"templates": commerce_service.list_templates(), "outbound": [_outbound_payload(command) for command in commerce_service.outbound_for(conversation_id)], "attribution": {"source": source, "events": len(events)}}
 
     @app.get("/inbox/{conversation_id}/templates")
     def templates(
@@ -361,6 +424,30 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
             "source": result.source,
             "message": result.message,
         }
+
+    @app.post("/inbox/{conversation_id}/appointment")
+    def appointment(conversation_id: str, body: dict, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        customer_name, appointment_at = body.get("customer_name"), body.get("appointment_at")
+        if not isinstance(customer_name, str) or not isinstance(appointment_at, str):
+            raise HTTPException(status_code=422, detail="customer_name and appointment_at are required")
+        try:
+            result = commerce_service.request_appointment(conversation_id, customer_name=customer_name, appointment_at=appointment_at)
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"state": result.state, "outcome": result.outcome, "provider_result": result.provider_result}
+
+    @app.post("/inbox/{conversation_id}/lead")
+    def lead(conversation_id: str, body: dict, workspace_id: str | None = Header(default=None, alias="X-Workspace-ID")) -> dict[str, object]:
+        _require_conversation_scope(state_store, conversation_id, workspace_id)
+        name, email, interest = body.get("name"), body.get("email"), body.get("interest")
+        if not all(isinstance(value, str) for value in (name, email, interest)):
+            raise HTTPException(status_code=422, detail="name, email, and interest are required")
+        try:
+            result = commerce_service.qualify_lead(conversation_id, name=name, email=email, interest=interest)
+        except CommerceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"state": result.state, "outcome": result.outcome, "provider_result": result.provider_result}
 
     @app.post("/inbox/{conversation_id}/select")
     def select_product(

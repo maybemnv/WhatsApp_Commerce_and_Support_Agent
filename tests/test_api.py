@@ -1,5 +1,8 @@
+from threading import Event, Thread
+
 from fastapi.testclient import TestClient
 
+from apps.api.inbound import InMemoryConversationStore, normalize_inbound
 from apps.api.main import create_app
 
 
@@ -353,3 +356,185 @@ def test_delivery_event_is_idempotent_and_updates_order_status():
     assert replay.status_code == 200
     assert replay.json()["duplicate"] is True
     assert status_response.json()["status"] == "delivered"
+
+
+def test_fixture_appointment_and_lead_outcomes_are_audited_without_connectors():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    conversation_id = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD).json()["conversation_id"]
+
+    appointment = client.post(
+        f"/inbox/{conversation_id}/appointment",
+        headers=headers,
+        json={"customer_name": "Jordan Lee", "appointment_at": "2026-08-12T15:00:00Z"},
+    )
+    lead = client.post(
+        f"/inbox/{conversation_id}/lead",
+        headers=headers,
+        json={"name": "Jordan Lee", "email": "jordan@example.test", "interest": "Blue Product"},
+    )
+    analytics = client.get(f"/inbox/{conversation_id}/analytics", headers=headers)
+
+    assert appointment.json() == {
+        "state": "awaiting_external_event",
+        "outcome": "appointment_requested",
+        "provider_result": "fixture_only",
+    }
+    assert lead.json() == {
+        "state": "completed",
+        "outcome": "lead_qualified",
+        "provider_result": "fixture_only",
+    }
+    assert [event["event_type"] for event in analytics.json()["events"]][-2:] == [
+        "appointment_requested",
+        "lead_qualified",
+    ]
+
+
+def test_operator_lifecycle_is_versioned_and_keeps_automation_paused_until_resumed():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    conversation_id = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD).json()["conversation_id"]
+    takeover = client.post(f"/inbox/{conversation_id}/policy/takeover", headers=headers).json()
+
+    first_claim = client.post(
+        f"/inbox/{conversation_id}/handoff/claim",
+        headers=headers,
+        json={"operator_id": "operator-1", "expected_version": takeover["version"]},
+    )
+    stale_claim = client.post(
+        f"/inbox/{conversation_id}/handoff/claim",
+        headers=headers,
+        json={"operator_id": "operator-2", "expected_version": takeover["version"]},
+    )
+    reply = client.post(
+        f"/inbox/{conversation_id}/handoff/reply",
+        headers=headers,
+        json={"operator_id": "operator-1", "text": "I can help with that."},
+    )
+    resolved = client.post(
+        f"/inbox/{conversation_id}/handoff/resolve",
+        headers=headers,
+        json={"operator_id": "operator-1"},
+    )
+    blocked = client.post(
+        f"/inbox/{conversation_id}/product-question",
+        headers=headers,
+        json={"text": "Is the blue product available?"},
+    )
+    resumed = client.post(f"/inbox/{conversation_id}/policy/resume", headers=headers)
+
+    assert first_claim.json()["state"] == "claimed"
+    assert stale_claim.status_code == 409
+    assert stale_claim.json()["detail"] == "handoff version conflict"
+    assert reply.json()["state"] == "claimed"
+    assert resolved.json()["state"] == "resolved"
+    assert blocked.status_code == 422
+    assert blocked.json()["detail"] == "outbound blocked: human takeover is active"
+    assert resumed.json()["human_takeover"] is False
+
+
+def test_reconsent_is_distinct_from_resume_and_control_data_is_visible():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    conversation_id = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD).json()["conversation_id"]
+
+    client.post(f"/inbox/{conversation_id}/policy/opt-out", headers=headers)
+    resume = client.post(f"/inbox/{conversation_id}/policy/resume", headers=headers)
+    reconsent = client.post(
+        f"/inbox/{conversation_id}/policy/reconsent",
+        headers=headers,
+        json={"operator_id": "operator-1", "evidence": "fixture customer asked to receive messages"},
+    )
+    controls = client.get(f"/inbox/{conversation_id}/controls", headers=headers)
+
+    assert resume.status_code == 409
+    assert reconsent.json() == {"conversation_id": conversation_id, "opted_out": False, "consent": "reconfirmed"}
+    assert controls.json()["templates"][0]["id"] == "order_status_update"
+    assert controls.json()["outbound"] == []
+    assert controls.json()["attribution"]["source"] == "fixture"
+
+
+def test_resume_waits_for_the_conversation_lock():
+    store = InMemoryConversationStore()
+    store.accept(normalize_inbound(PAYLOAD, adapter="meta_cloud", workspace_id=WORKSPACE_ID))
+    conversation_id = next(iter(store.conversations))
+    store.take_over(conversation_id)
+    finished = Event()
+    store._lock.acquire()
+    try:
+        worker = Thread(target=lambda: (store.resume(conversation_id), finished.set()))
+        worker.start()
+        assert not finished.wait(0.05)
+    finally:
+        store._lock.release()
+    worker.join()
+    assert finished.is_set()
+
+
+def test_opt_out_waits_for_the_conversation_lock():
+    store = InMemoryConversationStore()
+    store.accept(normalize_inbound(PAYLOAD, adapter="meta_cloud", workspace_id=WORKSPACE_ID))
+    conversation_id = next(iter(store.conversations))
+    started = Event()
+    finished = Event()
+
+    def opt_out():
+        started.set()
+        store.opt_out(conversation_id)
+        finished.set()
+
+    store._lock.acquire()
+    try:
+        worker = Thread(target=opt_out)
+        worker.start()
+        assert started.wait(1)
+        assert not finished.wait(0.05)
+    finally:
+        store._lock.release()
+    worker.join()
+    assert finished.is_set()
+
+
+def test_takeover_after_resolved_handoff_creates_a_fresh_open_task():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    conversation_id = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD).json()["conversation_id"]
+    first = client.post(f"/inbox/{conversation_id}/policy/takeover", headers=headers).json()
+    client.post(f"/inbox/{conversation_id}/handoff/claim", headers=headers, json={"operator_id": "operator-1", "expected_version": first["version"]})
+    client.post(f"/inbox/{conversation_id}/handoff/resolve", headers=headers, json={"operator_id": "operator-1"})
+    client.post(f"/inbox/{conversation_id}/policy/resume", headers=headers)
+
+    second = client.post(f"/inbox/{conversation_id}/policy/takeover", headers=headers, json={"reason": "new_request"})
+    detail = client.get(f"/inbox/{conversation_id}", headers=headers)
+
+    assert second.status_code == 200
+    assert detail.json()["handoff"]["state"] == "open"
+    assert detail.json()["handoff"]["reason"] == "new_request"
+
+
+def test_conversation_detail_reports_current_handoff_state():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    conversation_id = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD).json()["conversation_id"]
+    takeover = client.post(f"/inbox/{conversation_id}/policy/takeover", headers=headers).json()
+    client.post(f"/inbox/{conversation_id}/handoff/claim", headers=headers, json={"operator_id": "operator-1", "expected_version": takeover["version"]})
+
+    detail = client.get(f"/inbox/{conversation_id}", headers=headers)
+
+    assert detail.json()["handoff"]["state"] == "claimed"
+
+
+def test_repeated_opt_out_and_reconsent_cycles_are_recorded():
+    client = TestClient(create_app())
+    headers = {"X-Workspace-ID": WORKSPACE_ID}
+    conversation_id = client.post("/webhooks/meta_cloud", headers=headers, json=PAYLOAD).json()["conversation_id"]
+    for cycle in range(2):
+        client.post(f"/inbox/{conversation_id}/policy/opt-out", headers=headers)
+        client.post(f"/inbox/{conversation_id}/policy/reconsent", headers=headers, json={"operator_id": "operator-1", "evidence": f"cycle-{cycle}"})
+
+    analytics = client.get(f"/inbox/{conversation_id}/analytics", headers=headers).json()
+
+    event_types = [event["event_type"] for event in analytics["events"]]
+    assert event_types.count("opt_out") == 2
+    assert event_types.count("consent_reconfirmed") == 2
