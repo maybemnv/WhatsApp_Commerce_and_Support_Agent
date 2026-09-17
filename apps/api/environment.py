@@ -10,7 +10,7 @@ class RuntimeConfigurationError(ValueError):
 
 
 def app_environment() -> str:
-    value = os.getenv("APP_ENV", "production").strip().lower()
+    value = os.getenv("APP_ENV", "local-fixture").strip().lower()
     if value not in {"local-fixture", "staging", "production"}:
         raise RuntimeConfigurationError(
             "APP_ENV must be local-fixture, staging, or production"
@@ -19,9 +19,20 @@ def app_environment() -> str:
 
 
 def validate_runtime() -> None:
-    if app_environment() != "local-fixture":
+    if app_environment() == "local-fixture":
+        return
+    required = {
+        "DATABASE_URL": os.getenv("DATABASE_URL"),
+        "QUEUE_PROVIDER": os.getenv("QUEUE_PROVIDER"),
+        "AUTH_BEARER_TOKEN": os.getenv("AUTH_BEARER_TOKEN"),
+        "WHATSAPP_WEBHOOK_SECRET": os.getenv("WHATSAPP_WEBHOOK_SECRET"),
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise RuntimeConfigurationError("production runtime requires: " + ", ".join(missing))
+    if required["QUEUE_PROVIDER"] not in {"redis", "postgres-outbox"}:
         raise RuntimeConfigurationError(
-            "fixture-only service requires APP_ENV=local-fixture"
+            "QUEUE_PROVIDER must be redis or postgres-outbox outside fixture mode"
         )
 
 
