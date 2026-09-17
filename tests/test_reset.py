@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
+import pytest
 
+from apps.api.environment import RuntimeConfigurationError
 from apps.api.main import create_app
 from apps.api.inbound import InMemoryConversationStore, InboundWebhookService
 
@@ -155,3 +157,10 @@ def test_inbound_store_reset_clears_all_mutable_state():
     assert store.events == {}
     assert store.conversations == {}
     assert store.messages == {}
+
+
+def test_fixture_service_does_not_construct_outside_local_fixture(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+
+    with pytest.raises(RuntimeConfigurationError, match="local-fixture"):
+        create_app()

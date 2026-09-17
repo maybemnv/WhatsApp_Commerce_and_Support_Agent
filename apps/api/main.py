@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 
 from .commerce import CommerceDemoStore, CommerceError, CommerceService
+from .environment import is_local_fixture, validate_runtime
 from .inbound import InMemoryConversationStore, InboundValidationError, InboundWebhookService
 from .policy import OutboundPolicy
 
@@ -18,6 +19,7 @@ DEMO_NOW_ENV = "WHATSAPP_DEMO_NOW"
 
 
 def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
+    validate_runtime()
     state_store = store or InMemoryConversationStore()
     webhook_service = InboundWebhookService(state_store)
     commerce_store = CommerceDemoStore()
@@ -56,6 +58,8 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
 
     @app.get("/demo", include_in_schema=False)
     def demo() -> FileResponse:
+        if not is_local_fixture():
+            raise HTTPException(status_code=404, detail="fixture demo is disabled")
         return FileResponse(demo_page, media_type="text/html")
 
     @app.post("/webhooks/{adapter}", status_code=status.HTTP_202_ACCEPTED)
@@ -560,6 +564,8 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     def reset_demo(
         workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     ) -> dict[str, object]:
+        if not is_local_fixture():
+            raise HTTPException(status_code=404, detail="fixture reset is disabled")
         scoped_workspace = _require_workspace(workspace_id)
         conversation_ids = state_store.reset_workspace(scoped_workspace)
         commerce_store.reset_workspace(conversation_ids)
