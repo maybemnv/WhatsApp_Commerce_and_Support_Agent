@@ -139,6 +139,10 @@ class CommerceDemoStore:
     analytics_events: list[AnalyticsEvent] = field(default_factory=list)
     analytics_idempotency: set[tuple[str, str]] = field(default_factory=set)
 
+    def persist(self) -> None:
+        """No-op for fixture storage; production stores override this seam."""
+        return None
+
     def __post_init__(self) -> None:
         if not self.products:
             self.products["blue-product-001"] = Product(
@@ -229,6 +233,23 @@ class CommerceDemoStore:
 
 
 class CommerceService:
+    _PERSISTED_METHODS = frozenset({
+        "record_analytics_event", "request_appointment", "qualify_lead",
+        "enqueue_template", "submit_outbound", "fail_outbound", "retry_outbound",
+        "record_delivery_event", "select_product", "confirm_purchase",
+    })
+
+    def __getattribute__(self, name: str):
+        value = super().__getattribute__(name)
+        if name in CommerceService._PERSISTED_METHODS and callable(value):
+            return lambda *args, **kwargs: self._persist_result(value, *args, **kwargs)
+        return value
+
+    def _persist_result(self, method: Callable, *args, **kwargs):
+        result = method(*args, **kwargs)
+        self.catalog.persist()
+        return result
+
     def __init__(
         self,
         inbound_store: InMemoryConversationStore,

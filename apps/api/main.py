@@ -12,6 +12,7 @@ from .commerce import CommerceDemoStore, CommerceError, CommerceService
 from .environment import is_local_fixture, validate_runtime
 from .inbound import InMemoryConversationStore, InboundValidationError, InboundWebhookService
 from .policy import OutboundPolicy
+from .postgres_store import PostgresCommerceStore, PostgresConversationStore
 from .webhook_auth import verify_signature
 
 
@@ -21,9 +22,17 @@ DEMO_NOW_ENV = "WHATSAPP_DEMO_NOW"
 
 def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     validate_runtime()
-    state_store = store or InMemoryConversationStore()
+    state_store = store or (
+        InMemoryConversationStore()
+        if is_local_fixture()
+        else PostgresConversationStore(os.environ["DATABASE_URL"])
+    )
     webhook_service = InboundWebhookService(state_store)
-    commerce_store = CommerceDemoStore()
+    commerce_store = (
+        CommerceDemoStore()
+        if is_local_fixture()
+        else PostgresCommerceStore(os.environ["DATABASE_URL"])
+    )
     app = FastAPI(title="WhatsApp Commerce and Support Agent", version="0.1.0")
 
     @app.middleware("http")

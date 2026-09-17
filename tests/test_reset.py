@@ -4,6 +4,7 @@ import pytest
 from apps.api.environment import RuntimeConfigurationError
 from apps.api.main import create_app
 from apps.api.inbound import InMemoryConversationStore, InboundWebhookService
+from apps.api.commerce import CommerceDemoStore
 
 
 WORKSPACE_ID = "workspace-demo"
@@ -164,3 +165,28 @@ def test_fixture_service_does_not_construct_outside_local_fixture(monkeypatch):
 
     with pytest.raises(RuntimeConfigurationError, match="local-fixture"):
         create_app()
+
+
+def test_production_factory_selects_postgres_boundaries(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fixture")
+    monkeypatch.setenv("QUEUE_PROVIDER", "postgres-outbox")
+    monkeypatch.setenv("AUTH_BEARER_TOKEN", "fixture-token")
+    monkeypatch.setenv("WHATSAPP_WEBHOOK_SECRET", "fixture-secret")
+    selected: list[str] = []
+
+    def conversation_store(url: str):
+        selected.append(f"conversation:{url}")
+        return InMemoryConversationStore()
+
+    def commerce_store(url: str):
+        selected.append(f"commerce:{url}")
+        return CommerceDemoStore()
+
+    monkeypatch.setattr("apps.api.main.PostgresConversationStore", conversation_store)
+    monkeypatch.setattr("apps.api.main.PostgresCommerceStore", commerce_store)
+
+    app = create_app()
+
+    assert selected == ["conversation:postgresql://fixture", "commerce:postgresql://fixture"]
+    assert isinstance(app.state.store, InMemoryConversationStore)
