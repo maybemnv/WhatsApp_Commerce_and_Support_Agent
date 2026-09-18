@@ -37,7 +37,8 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def production_auth(request: Request, call_next):
-        if not is_local_fixture() and request.url.path not in {"/health", "/ready"}:
+        is_webhook = request.url.path.startswith("/webhooks/")
+        if not is_local_fixture() and request.url.path not in {"/health", "/ready"} and not is_webhook:
             expected = f"Bearer {os.environ.get('AUTH_BEARER_TOKEN', '')}"
             if request.headers.get("authorization") != expected:
                 return JSONResponse(status_code=401, content={"detail": "authenticated operator required"})

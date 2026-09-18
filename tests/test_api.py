@@ -1,7 +1,11 @@
+import hashlib
+import hmac
+import json
 from threading import Event, Thread
 
 from fastapi.testclient import TestClient
 
+from apps.api.commerce import CommerceDemoStore
 from apps.api.inbound import InMemoryConversationStore, normalize_inbound
 from apps.api.main import create_app
 
@@ -14,6 +18,31 @@ PAYLOAD = {
     "text": "Is the blue product available?",
     "timestamp": "2026-08-09T10:00:00Z",
 }
+
+
+def test_production_webhook_reaches_signature_boundary_before_operator_auth(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fixture")
+    monkeypatch.setenv("QUEUE_PROVIDER", "postgres-outbox")
+    monkeypatch.setenv("AUTH_BEARER_TOKEN", "fixture-token")
+    monkeypatch.setenv("WHATSAPP_WEBHOOK_SECRET", "fixture-secret")
+    monkeypatch.setattr("apps.api.main.PostgresCommerceStore", lambda _url: CommerceDemoStore())
+
+    body = json.dumps(PAYLOAD, separators=(",", ":")).encode()
+    signature = "sha256=" + hmac.new(b"fixture-secret", body, hashlib.sha256).hexdigest()
+    client = TestClient(create_app(store=InMemoryConversationStore()))
+
+    response = client.post(
+        "/webhooks/meta_cloud",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": signature,
+            "X-Workspace-ID": WORKSPACE_ID,
+        },
+    )
+
+    assert response.status_code == 202
 
 
 def test_webhook_accepts_and_deduplicates_fixture_event():

@@ -10,7 +10,7 @@ class RuntimeConfigurationError(ValueError):
 
 
 def app_environment() -> str:
-    value = os.getenv("APP_ENV", "local-fixture").strip().lower()
+    value = os.getenv("APP_ENV", "production").strip().lower()
     if value not in {"local-fixture", "staging", "production"}:
         raise RuntimeConfigurationError(
             "APP_ENV must be local-fixture, staging, or production"
