@@ -166,6 +166,15 @@ create table if not exists public.audit_events (
   occurred_at timestamptz not null default now()
 );
 
+-- Compatibility persistence for the current aggregate service. The domain
+-- tables above remain the durable query/RLS contract while the existing
+-- service is migrated without changing its route payloads.
+create table if not exists public.whatsapp_runtime_snapshots (
+  store_name text primary key,
+  payload bytea not null,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists conversations_workspace_status_idx on public.conversations(workspace_id, status);
 create index if not exists outbound_commands_workspace_status_idx on public.outbound_commands(workspace_id, status, next_attempt_at);
 create index if not exists audit_events_workspace_time_idx on public.audit_events(workspace_id, occurred_at);

@@ -30,7 +30,7 @@ graph LR
 Prerequisites: Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node.js/npm for browser tests, and PowerShell.
 
 ```powershell
-uv run --with-requirements requirements.txt python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8105
+$env:APP_ENV = "local-fixture"; uv run --with-requirements requirements.txt python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8105
 ```
 
 Or use the launcher:

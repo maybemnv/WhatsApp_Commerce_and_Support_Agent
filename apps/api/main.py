@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
-from fastapi import FastAPI, Header, HTTPException, status
+from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 
@@ -12,6 +12,8 @@ from .commerce import CommerceDemoStore, CommerceError, CommerceService
 from .environment import is_local_fixture, validate_runtime
 from .inbound import InMemoryConversationStore, InboundValidationError, InboundWebhookService
 from .policy import OutboundPolicy
+from .postgres_store import PostgresCommerceStore, PostgresConversationStore
+from .webhook_auth import verify_signature
 
 
 DEFAULT_DEMO_NOW = datetime(2026, 8, 9, 12, tzinfo=timezone.utc)
@@ -20,10 +22,27 @@ DEMO_NOW_ENV = "WHATSAPP_DEMO_NOW"
 
 def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
     validate_runtime()
-    state_store = store or InMemoryConversationStore()
+    state_store = store or (
+        InMemoryConversationStore()
+        if is_local_fixture()
+        else PostgresConversationStore(os.environ["DATABASE_URL"])
+    )
     webhook_service = InboundWebhookService(state_store)
-    commerce_store = CommerceDemoStore()
+    commerce_store = (
+        CommerceDemoStore()
+        if is_local_fixture()
+        else PostgresCommerceStore(os.environ["DATABASE_URL"])
+    )
     app = FastAPI(title="WhatsApp Commerce and Support Agent", version="0.1.0")
+
+    @app.middleware("http")
+    async def production_auth(request: Request, call_next):
+        is_webhook = request.url.path.startswith("/webhooks/")
+        if not is_local_fixture() and request.url.path not in {"/health", "/ready"} and not is_webhook:
+            expected = f"Bearer {os.environ.get('AUTH_BEARER_TOKEN', '')}"
+            if request.headers.get("authorization") != expected:
+                return JSONResponse(status_code=401, content={"detail": "authenticated operator required"})
+        return await call_next(request)
     app.state.store = state_store
     app.state.commerce_store = commerce_store
     app.state.demo_now = _configured_demo_now()
@@ -63,11 +82,18 @@ def create_app(store: InMemoryConversationStore | None = None) -> FastAPI:
         return FileResponse(demo_page, media_type="text/html")
 
     @app.post("/webhooks/{adapter}", status_code=status.HTTP_202_ACCEPTED)
-    def receive_webhook(
+    async def receive_webhook(
         adapter: str,
         payload: dict,
+        request: Request,
         workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     ) -> dict[str, object]:
+        if not is_local_fixture() and not verify_signature(
+            await request.body(),
+            request.headers.get("X-Hub-Signature-256"),
+            os.environ["WHATSAPP_WEBHOOK_SECRET"],
+        ):
+            raise HTTPException(status_code=403, detail="invalid webhook signature")
         if not workspace_id or not workspace_id.strip():
             raise HTTPException(status_code=400, detail="X-Workspace-ID is required")
         try:
